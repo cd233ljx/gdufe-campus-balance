@@ -6,7 +6,7 @@
 
 ## 下载与使用
 
-前往 [Releases](https://github.com/cd233ljx/gdufe-campus-balance/releases/latest)，下载 `CardsClaim-v0.1.1-windows-x64.zip`，**完整解压**后双击 `CardsClaim.exe`。不要单独移动 EXE，旁边的 `_internal` 是运行必需文件。
+前往 [Releases](https://github.com/cd233ljx/gdufe-campus-balance/releases/latest)，下载 `gdufe-campus-balance-v0.1.2-windows-x64.zip`，**完整解压**后双击 `gdufe-campus-balance.exe`。不要单独移动 EXE，旁边的 `_internal` 是运行必需文件。
 
 1. 选择需要关注的项目，点击「登录学校账号」，在独立的 Edge / Chrome 窗口完成学校认证。
 2. 登录成功后自动返回软件，优先选中学校已绑定的房间或力王手机号。核对后点击「确认房间并开始监控」。没有有效绑定时，可直接在软件中选择校区、楼栋和房间。
@@ -50,12 +50,12 @@ py -3.13 -m venv .venv-windows
 .\.venv-windows\Scripts\python.exe windows\release.py
 ```
 
-`build.cmd` 使用固定版本的 PyInstaller，生成 `dist/CardsClaim`；`release.py` 生成带版本号的 Windows 包、源码包及 `SHA256SUMS.txt`。发布文件在 `dist/release`，不进入 Git。源码包从 Git 跟踪文件生成，发布前应确保工作区干净。
+`build.cmd` 使用固定版本的 PyInstaller，生成 `dist/gdufe-campus-balance`；`release.py` 生成带版本号的 Windows 包、源码包及 `SHA256SUMS.txt`。发布文件在 `dist/release`，不进入 Git。源码包从 Git 跟踪文件生成，发布前应确保工作区干净。
 
 原生界面回归测试会打开测试窗口，使用临时目录及模拟账户，不访问学校接口：
 
 ```powershell
-Start-Process .\dist\CardsClaim\CardsClaim.exe -ArgumentList '--gui-self-test build/gui-report.json' -Wait
+Start-Process .\dist\gdufe-campus-balance\gdufe-campus-balance.exe -ArgumentList '--gui-self-test build/gui-report.json' -Wait
 Get-Content build/gui-report.json
 ```
 

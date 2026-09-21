@@ -43,12 +43,12 @@ def capture_params(url, form, body):
     return item, {key: values[key] for key in REQUIRED[item]}
 
 
-PAGE = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CardsClaim 本机登录</title>
+PAGE = '''<!doctype html><html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>GDUFE Campus Balance 本机登录</title>
 <style>body{font:18px system-ui;max-width:650px;margin:10vh auto;padding:24px;line-height:1.8}button{padding:14px;font:inherit}#status{white-space:pre-line}</style>
-<h1>CardsClaim 本机登录</h1><p>点击后会打开独立的 Edge / Chrome 窗口。请在那个窗口完成学校登录；初次设置时，再进入需要监控的缴费项目，选择自己的房间并查询余额。</p><p>学校要求邮箱验证时正常完成；出现确认页面时可选择“仅一次”。密码和验证码不由本程序保存。</p>
+<h1>GDUFE Campus Balance 本机登录</h1><p>点击后会打开独立的 Edge / Chrome 窗口。请在那个窗口完成学校登录；初次设置时，再进入需要监控的缴费项目，选择自己的房间并查询余额。</p><p>学校要求邮箱验证时正常完成；出现确认页面时可选择“仅一次”。密码和验证码不由本程序保存。</p>
 <button id="start">打开学校登录窗口</button><p id="status"></p><script src="/app.js"></script></html>'''
 JS = '''const key=location.hash.slice(1);history.replaceState(null,'',location.pathname);const s=document.getElementById('status');
-document.getElementById('start').onclick=async()=>{try{const r=await fetch('/login',{method:'POST',headers:{'X-Login-Key':key}});s.textContent=r.ok?'请在新打开的学校窗口操作。完成后回到 CardsClaim 终端确认。':'链接已失效，请回到终端重新登录。';}catch{s.textContent='本次登录已结束，请返回终端。';}};'''
+document.getElementById('start').onclick=async()=>{try{const r=await fetch('/login',{method:'POST',headers:{'X-Login-Key':key}});s.textContent=r.ok?'请在新打开的学校窗口操作。完成后回到 GDUFE Campus Balance 终端确认。':'链接已失效，请回到终端重新登录。';}catch{s.textContent='本次登录已结束，请返回终端。';}};'''
 
 
 def login_app(capability, deadline, started, authority):

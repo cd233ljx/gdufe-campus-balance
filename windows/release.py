@@ -20,8 +20,8 @@ def main():
         raise SystemExit('Commit source changes before packaging a release.')
     version = tomllib.loads((ROOT / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
     commit = git('rev-parse', 'HEAD')
-    app = ROOT / 'dist' / 'CardsClaim'
-    for required in ('CardsClaim.exe', 'LICENSE', 'README.md', 'build-info.json', 'THIRD-PARTY-LICENSES/INDEX.txt'):
+    app = ROOT / 'dist' / 'gdufe-campus-balance'
+    for required in ('gdufe-campus-balance.exe', 'LICENSE', 'README.md', 'build-info.json', 'THIRD-PARTY-LICENSES/INDEX.txt'):
         if not (app / required).is_file():
             raise SystemExit(f'Missing build file: {required}; run windows/build.cmd first.')
     info = json.loads((app / 'build-info.json').read_text(encoding='utf-8'))
@@ -29,16 +29,16 @@ def main():
         raise SystemExit('Build does not match the clean current commit; rebuild first.')
     destination = ROOT / 'dist' / 'release'
     destination.mkdir(parents=True, exist_ok=True)
-    binary = destination / f'CardsClaim-v{version}-windows-x64.zip'
-    source = destination / f'CardsClaim-v{version}-source.zip'
+    binary = destination / f'gdufe-campus-balance-v{version}-windows-x64.zip'
+    source = destination / f'gdufe-campus-balance-v{version}-source.zip'
     with zipfile.ZipFile(binary, 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(app.rglob('*')):
             if path.is_file() and path.relative_to(app).parts[0] != 'data':
-                archive.write(path, Path('CardsClaim') / path.relative_to(app))
+                archive.write(path, Path('gdufe-campus-balance') / path.relative_to(app))
     # Git's archive contains precisely the committed source, with no caches,
     # accounts, logs, screenshots, old ZIPs, or untracked local captures.
     subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=zip',
-                    f'--prefix=CardsClaim-v{version}/', '-o', str(source), commit], check=True)
+                    f'--prefix=gdufe-campus-balance-v{version}/', '-o', str(source), commit], check=True)
     checksums = destination / 'SHA256SUMS.txt'
     checksums.write_text(''.join(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n'
                                 for path in (binary, source)), encoding='utf-8')

@@ -240,7 +240,7 @@ def main():
     for stream in (sys.stdout, sys.stderr):
         if stream is not None and not stream.isatty() and hasattr(stream, 'reconfigure'):
             stream.reconfigure(encoding='utf-8', errors='replace')
-    parser = argparse.ArgumentParser(description='CardsClaim Windows 本机版')
+    parser = argparse.ArgumentParser(description='GDUFE Campus Balance Windows 本机版')
     parser.add_argument('--background', action='store_true')
     parser.add_argument('--instance', help=argparse.SUPPRESS)
     parser.add_argument('--console', action='store_true', help='使用旧版终端菜单')
@@ -262,8 +262,8 @@ def main():
     if args.notify:
         if not args.notify.startswith('notice-') or len(args.notify) != 39 or any(c not in '0123456789abcdef' for c in args.notify[7:]):
             parser.exit(2)
-        text = DesktopStore().read(args.notify, {}).get('text', 'CardsClaim')
-        result = ctypes.windll.user32.MessageBoxW(None, text, 'CardsClaim 余额提醒', 0x40 | 0x10000)
+        text = DesktopStore().read(args.notify, {}).get('text', 'GDUFE Campus Balance')
+        result = ctypes.windll.user32.MessageBoxW(None, text, 'GDUFE Campus Balance 余额提醒', 0x40 | 0x10000)
         raise SystemExit(0 if result else 1)
     store = DesktopStore()
     if args.background:
@@ -278,7 +278,7 @@ def main():
         from .gui import main as window_main
         window_main(choose_rooms=args.rooms)
         return
-    say('CardsClaim Windows 本机版\n无需服务器、Tailscale 或飞书。密码和邮箱验证码只在学校浏览器页面输入。')
+    say('GDUFE Campus Balance Windows 本机版\n无需服务器、Tailscale 或飞书。密码和邮箱验证码只在学校浏览器页面输入。')
     while True:
         say('\n1 设置时间 / 阈值 / 项目\n2 浏览器登录 / 续期\n3 立即查询\n4 前台监控\n5 后台监控\n6 停止监控\n7 查看状态\n8 重新选择房间\n0 退出菜单（不停止已启动的后台监控）')
         try:

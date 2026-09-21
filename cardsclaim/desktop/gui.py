@@ -69,7 +69,7 @@ class DesktopWindow:
         self.needs_relogin = False
         self.buttons = []
         self.page = 'setup'
-        root.title('CardsClaim · 校园余额')
+        root.title('GDUFE Campus Balance · 校园余额')
         self.window_icon = ImageTk.PhotoImage(icon_image())
         root.iconphoto(True, self.window_icon)
         root.geometry('820x700')
@@ -87,7 +87,7 @@ class DesktopWindow:
         self.outer.pack(fill='both', expand=True)
         header = tk.Frame(self.outer, bg=BG)
         header.pack(fill='x')
-        tk.Label(header, text='CardsClaim', bg=BG, fg=INK, font=('Segoe UI', 23, 'bold')).pack(side='left')
+        tk.Label(header, text='GDUFE Campus Balance', bg=BG, fg=INK, font=('Segoe UI', 23, 'bold')).pack(side='left')
         tk.Label(header, text='校园余额助手', bg=BG, fg=MUTED).pack(side='left', padx=14, pady=(12, 0))
         self.body = tk.Frame(self.outer, bg=BG)
         self.body.pack(fill='both', expand=True, pady=(22, 10))
@@ -239,13 +239,13 @@ class DesktopWindow:
         self.busy = False
         self.show()
         self.status.set('界面处理未完成，已保留诊断记录。请重新打开程序后重试。')
-        messagebox.showerror('CardsClaim', '界面处理未完成，不能确认登录已保存。\n已保留不含密码和令牌的诊断记录，请反馈此提示。', parent=self.root)
+        messagebox.showerror('GDUFE Campus Balance', '界面处理未完成，不能确认登录已保存。\n已保留不含密码和令牌的诊断记录，请反馈此提示。', parent=self.root)
 
     def start_tray(self):
         def ready(icon):
             icon.visible = True
             self.events.put(('tray_ready', None))
-        self.tray = pystray.Icon('CardsClaim', icon_image(), 'CardsClaim · 校园余额', pystray.Menu(
+        self.tray = pystray.Icon('GDUFE Campus Balance', icon_image(), 'GDUFE Campus Balance · 校园余额', pystray.Menu(
             pystray.MenuItem('打开余额窗口', lambda: self.events.put(('show', None)), default=True),
             pystray.MenuItem('刷新余额', lambda: self.events.put(('refresh', None))),
             pystray.MenuItem('退出并停止监控', lambda: self.events.put(('quit', None)))))
@@ -317,7 +317,7 @@ class DesktopWindow:
                             self.setup()
                         self.status.set(error)
                         self.show()
-                        messagebox.showinfo('CardsClaim', error, parent=self.root)
+                        messagebox.showinfo('GDUFE Campus Balance', error, parent=self.root)
                     elif callback:
                         callback(result)
                 elif event == 'progress':

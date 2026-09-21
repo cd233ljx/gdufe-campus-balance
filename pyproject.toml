@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "cardsclaim"
-version = "0.1.1"
+version = "0.1.2"
 description = "Windows desktop balance monitor for GDUFE campus cards"
 readme = "README.md"
 requires-python = ">=3.12"

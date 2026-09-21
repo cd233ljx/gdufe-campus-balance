@@ -2,7 +2,7 @@
 setlocal
 chcp 65001 >nul
 cd /d "%~dp0"
-title CardsClaim
+title GDUFE Campus Balance
 where py >nul 2>nul
 if not errorlevel 1 (
     py -3 windows\bootstrap.py
@@ -10,7 +10,7 @@ if not errorlevel 1 (
     where python >nul 2>nul
     if errorlevel 1 (
         echo Please install Python 3.12 or newer from https://www.python.org/downloads/windows/
-        echo Or use the packaged CardsClaim.exe distribution.
+        echo Or use the packaged gdufe-campus-balance.exe distribution.
         pause
         exit /b 1
     )
