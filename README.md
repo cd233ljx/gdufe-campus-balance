@@ -1,12 +1,12 @@
-# CardsClaim
+# GDUFE Campus Balance
 
 广东财经大学校园余额助手。Windows 原生窗口，在自己的电脑上查询宿舍电量、自来水及力王热水余额，余额不足时弹窗提醒。
 
-无需服务器、飞书或 Python。浏览器只负责学校登录，房间选择和日常查询都在软件内完成。本项目由个人维护，与学校及校园卡平台无隶属关系。
+本项目由个人维护，与学校及校园卡平台无隶属关系。
 
 ## 下载与使用
 
-前往 [Releases](https://github.com/cd233ljx/CardsClaim/releases/latest)，下载 `CardsClaim-v0.1.0-windows-x64.zip`，**完整解压**后双击 `CardsClaim.exe`。不要单独移动 EXE，旁边的 `_internal` 是运行必需文件。
+前往 [Releases](https://github.com/cd233ljx/gdufe-campus-balance/releases/latest)，下载 `CardsClaim-v0.1.0-windows-x64.zip`，**完整解压**后双击 `CardsClaim.exe`。不要单独移动 EXE，旁边的 `_internal` 是运行必需文件。
 
 1. 选择需要关注的项目，点击「登录学校账号」，在独立的 Edge / Chrome 窗口完成学校认证。
 2. 登录成功后自动返回软件，优先选中学校已绑定的房间或力王手机号。核对后点击「确认房间并开始监控」。没有有效绑定时，可直接在软件中选择校区、楼栋和房间。
@@ -27,8 +27,6 @@
 ## 登录与本地数据
 
 密码和验证码只在学校页面输入，程序不保存。浏览器使用独立临时会话，不读取日常浏览器资料。取得的校园卡凭证、房间设置与余额使用 Windows DPAPI 加密，保存在 `%USERPROFILE%\.cardsclaim`，与当前 Windows 用户绑定。更新程序时保留此目录即可沿用登录，不要随安装包一起分发。
-
-旧版 `%LOCALAPPDATA%\CardsClaim` 及 Codex 隔离缓存中的有效数据会自动迁移，原文件保留。选房只改变本机监控配置，不修改学校绑定，不涉及充值。学校可能提前撤销凭证，软件不会绕过学校认证。
 
 如需卸载，先退出程序，再删除解压目录；希望同时清除登录时，再删除上述本地数据目录。请勿在 Issue 中上传 HAR、Cookie、Token、手机号或包含个人房间信息的截图。
 

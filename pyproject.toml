@@ -18,8 +18,8 @@ dependencies = [
 ]
 
 [project.urls]
-Repository = "https://github.com/cd233ljx/CardsClaim"
-Issues = "https://github.com/cd233ljx/CardsClaim/issues"
+Repository = "https://github.com/cd233ljx/gdufe-campus-balance"
+Issues = "https://github.com/cd233ljx/gdufe-campus-balance/issues"
 
 [tool.setuptools.packages.find]
 include = ["cardsclaim*"]
