@@ -8,11 +8,13 @@ from datetime import datetime
 
 from .app import account_ready, background, check, session, stop
 from .model import accept, validate, TZ, query_all
-from ..api import Campus
+from ..api import Campus, QueryError
+from .history import record
+from . import email_alerts
 
 
 def default_config():
-    return {'query_time': '22:00', 'items': ['electricity', 'tap_water'],
+    return {'items': ['electricity', 'tap_water'],
             'thresholds': {'electricity': '20', 'tap_water': '1', 'liwang': None},
             'liwang_basis': 'cash', 'params': {}}
 
@@ -42,11 +44,6 @@ class Controller:
                 account = account_ready(self.store)
                 state = self.store.read('state', {})
                 asyncio.run(check(self.store, account['config'], account['token'], state))
-                # An opening/manual check also satisfies today's scheduled check
-                # only when performed after the configured time.
-                if datetime.now(TZ).strftime('%H:%M') >= account['config']['query_time']:
-                    state['last_day'] = datetime.now(TZ).date().isoformat()
-                    self.store.write('state', state)
         finally:
             self.resume()
 
@@ -112,8 +109,18 @@ class Controller:
         async def verify():
             async with session() as http:
                 return await query_all(Campus(http, cfg), cfg, token)
-        balances = asyncio.run(verify())
-        self.commit_login((cfg, token, balances))
+        stop(self.store)
+        try:
+            with self.store.lock():
+                try:
+                    balances = asyncio.run(verify())
+                except QueryError as error:
+                    record(self.store, cfg, getattr(error, 'balances', {}), error.kind,
+                           'login', getattr(error, 'item', None))
+                    raise
+            self.commit_login((cfg, token, balances))
+        finally:
+            self.resume()
 
     def commit_login(self, result):
         cfg, token, balances = result
@@ -125,8 +132,11 @@ class Controller:
                 state = self.store.read('state', {}) if old.get('params') == cfg.get('params') and old.get('items') == cfg.get('items') else {}
                 self.store.write('account', {'config': cfg, 'token': token})
                 accept(cfg, state, balances)
-                if datetime.now(TZ).strftime('%H:%M') >= cfg['query_time']:
-                    state['last_day'] = datetime.now(TZ).date().isoformat()
+                state['last_attempt'] = state['last_success']
+                record(self.store, cfg, balances, source='login')
+                if old.get('params') != cfg.get('params') or old.get('items') != cfg.get('items'):
+                    self.store.write('email-state', {})
+                email_alerts.queue_alerts(self.store, cfg, state)
                 self.store.write('state', state)
                 self.store.write('login-draft', {})
         finally:
@@ -147,5 +157,35 @@ class Controller:
                     accept(cfg, state, state['balances'])
                     state['last_success'] = stamp
                 self.store.write('state', state)
+                email_alerts.queue_alerts(self.store, cfg, state)
+        finally:
+            self.resume()
+
+    def bind_email(self, address, code):
+        config = email_alerts.credentials(address, code)
+        email_alerts.send(config, '校园余额助手 · 邮箱绑定测试',
+            '这是一封绑定测试邮件。收到此邮件说明 QQ 邮箱发送通道可用。\n'
+            '软件保存绑定后，常驻期间每 30 分钟查询余额，首次低于设置阈值时发送告警。\n'
+            '持续低余额不重复发送；恢复后再次低于阈值会重新提醒。\n'
+            '可在软件“设置 → QQ 邮箱告警”中修改或关闭。请保持软件运行和网络连接。')
+        stop(self.store)
+        try:
+            with self.store.lock():
+                old = self.store.read('email', {})
+                self.store.write('email', config)
+                if not old.get('enabled') or old.get('address') != config['address']:
+                    self.store.write('email-state', {})
+                account = self.store.read('account', {})
+                if account.get('config'):
+                    email_alerts.queue_alerts(self.store, account['config'], self.store.read('state', {}))
+        finally:
+            self.resume()
+
+    def disable_email(self):
+        stop(self.store)
+        try:
+            with self.store.lock():
+                self.store.write('email', {})
+                self.store.write('email-state', {})
         finally:
             self.resume()

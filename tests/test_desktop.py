@@ -71,14 +71,16 @@ class DesktopRules(unittest.TestCase):
         accept(c,state,balances()); fail(state,QueryError('auth'))
         self.assertIn('auth',state['pending'])
 
-    def test_daily_sleep_restart_and_timezone(self):
-        c=config(); state={}
-        self.assertFalse(due(c,state,datetime(2026,9,22,21,59,tzinfo=TZ)))
-        self.assertTrue(due(c,state,datetime(2026,9,22,23,59,tzinfo=TZ)))
-        state['last_day']='2026-09-22'
-        self.assertFalse(due(c,state,datetime(2026,9,22,23,59,tzinfo=TZ)))
-        self.assertFalse(due(c,state,datetime(2026,9,23,9,0,tzinfo=TZ)))
-        self.assertTrue(due(c,state,datetime(2026,9,23,22,0,tzinfo=TZ)))
+    def test_half_hour_sleep_restart_and_clock_change(self):
+        c=config(); state={'last_day': '2026-09-22'}
+        self.assertTrue(due(c,state,datetime(2026,9,22,9,0,tzinfo=TZ)))
+        state['last_attempt']='2026-09-22T09:00:00+08:00'
+        self.assertFalse(due(c,state,datetime(2026,9,22,9,29,59,tzinfo=TZ)))
+        self.assertTrue(due(c,state,datetime(2026,9,22,9,30,tzinfo=TZ)))
+        self.assertTrue(due(c,state,datetime(2026,9,23,9,0,tzinfo=TZ)))
+        self.assertTrue(due(c,state,datetime(2026,9,22,8,59,tzinfo=TZ)))
+        state['last_attempt']='invalid'
+        self.assertTrue(due(c,state))
 
     def test_parameter_capture_only_successful_expected_origin(self):
         form='campus=test&building=12&room=34&type=IEC&level=3&feeitemid=1&ignore=secret'

@@ -15,9 +15,6 @@ FEE_ITEMS = {'1': 'electricity', '5': 'tap_water', '7': 'liwang'}
 
 def validate(cfg, require_params=True):
     try:
-        datetime.strptime(cfg['query_time'], '%H:%M')
-        if len(cfg['query_time']) != 5:
-            raise ValueError()
         items = cfg['items']
         if not items or len(set(items)) != len(items) or any(k not in ITEMS for k in items):
             raise ValueError()
@@ -31,7 +28,7 @@ def validate(cfg, require_params=True):
                 if any(not isinstance(cfg['params'][item].get(k), str) or not cfg['params'][item][k].strip() for k in REQUIRED[item]):
                     raise ValueError()
     except (KeyError, TypeError, ValueError):
-        raise ValueError('请完成查询时间、项目、阈值和房间设置') from None
+        raise ValueError('请完成项目、阈值和房间设置') from None
     return cfg
 
 
@@ -42,13 +39,19 @@ async def query_all(campus, cfg, token):
             result[item] = await campus.query(item, token)
         except QueryError as error:
             error.item = item
+            error.balances = result
             raise
     return result
 
 
 def due(cfg, state, now=None):
     now = now or datetime.now(TZ)
-    return state.get('last_day') != now.date().isoformat() and now.strftime('%H:%M') >= cfg['query_time']
+    try:
+        last = datetime.fromisoformat(state.get('last_attempt') or state.get('last_success') or '')
+        elapsed = (now - last).total_seconds()
+        return elapsed >= 1800 or elapsed < 0
+    except (ValueError, TypeError):
+        return True
 
 
 def accept(cfg, state, balances):

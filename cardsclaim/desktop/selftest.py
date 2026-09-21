@@ -37,7 +37,7 @@ async def run():
                    'params': {'electricity': dict(campus='test', building='test', room='test',
                                                  type='IEC', level='3', feeitemid='1')}}
             store.write('account', {'config': cfg, 'token': 'offline-test-only'})
-            store.write('state', {'last_day': datetime.now(TZ).date().isoformat()})
+            store.write('state', {'last_attempt': datetime.now(TZ).isoformat()})
             background(store)
             assert store.running()
             try:

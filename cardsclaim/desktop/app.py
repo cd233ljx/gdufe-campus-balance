@@ -17,6 +17,8 @@ from ..api import Campus, QueryError
 from ..common import ITEMS, LABELS, number
 from .model import TZ, accept, due, fail, query_all, validate
 from .store import DesktopStore
+from .history import record
+from . import email_alerts
 
 ERRORS = {'auth': '登录已失效，请选择浏览器登录 / 续期', 'network': '网络连接失败，下一轮查询会重试',
           'business': '学校接口未接受查询，请重新选择房间', 'parse': '余额格式无法识别，请勿把它当成零'}
@@ -35,7 +37,7 @@ def ask(label, default=None):
 def settings(store):
     old = store.read('account', {})
     cfg = copy.deepcopy(old.get('config', {}))
-    cfg['query_time'] = ask('每日查询时间（北京时间 HH:MM）', cfg.get('query_time', '22:00'))
+    say('常驻期间每 30 分钟自动查询一次。')
     selected = ask('监控项目：1 电量、2 自来水、3 力王热水（空格分隔）', ' '.join(str(ITEMS.index(k)+1) for k in cfg.get('items', ITEMS[:2])))
     try:
         cfg['items'] = [ITEMS[int(k)-1] for k in selected.split() if k in ('1','2','3')]
@@ -102,20 +104,25 @@ async def login(store, discover=False):
         state['pending'] = {}
     accept(cfg, state, balances)
     store.write('state', state)
+    record(store, cfg, balances, source='login')
+    email_alerts.queue_alerts(store, cfg, state)
     say('登录及所有所选项目的实际查询已通过，凭证已加密保存。')
     show_balances(state)
 
 
-async def check(store, cfg, token, state):
+async def check(store, cfg, token, state, source='manual'):
     state['last_attempt'] = datetime.now(TZ).isoformat()
     async with session() as http:
         try:
             balances = await query_all(Campus(http, cfg), cfg, token)
             accept(cfg, state, balances)
+            record(store, cfg, balances, source=source)
         except QueryError as error:
             fail(state, error)
+            record(store, cfg, getattr(error, 'balances', {}), error.kind, source, getattr(error, 'item', None))
             say(ERRORS[error.kind])
     store.write('state', state)
+    email_alerts.queue_alerts(store, cfg, state)
     return state.get('status') == 'ok'
 
 
@@ -172,8 +179,9 @@ async def monitor(store, background=False, instance=None):
     state = store.read('state', {})
     delivery = None
     retry_at = 0
+    mail_retry_at = 0
     try:
-        say(f"监控已启动，每天北京时间 {cfg['query_time']} 查询。按 B 切换后台，按 Q 返回菜单。")
+        say('监控已启动，每 30 分钟查询。按 B 切换后台，按 Q 返回菜单。')
         while True:
             control = store.read('stop', {})
             if control.get('instance') == instance:
@@ -185,9 +193,7 @@ async def monitor(store, background=False, instance=None):
                     if key in ('q', 'b'):
                         return key == 'b'
             if due(cfg, state):
-                state['last_day'] = datetime.now(TZ).date().isoformat()
-                store.write('state', state)
-                await check(store, cfg, token, state)
+                await check(store, cfg, token, state, source='automatic')
                 if not background:
                     show_balances(state)
             if delivery is not None and delivery.done():
@@ -196,6 +202,9 @@ async def monitor(store, background=False, instance=None):
                 retry_at = time.monotonic() + 60
             if state.get('pending') and delivery is None and time.monotonic() >= retry_at:
                 delivery = asyncio.create_task(deliver(store, state))
+            if time.monotonic() >= mail_retry_at:
+                await email_alerts.deliver(store)
+                mail_retry_at = time.monotonic() + 60
             await asyncio.sleep(1)
     finally:
         if delivery:
@@ -280,7 +289,7 @@ def main():
         return
     say('GDUFE Campus Balance Windows 本机版\n无需服务器、Tailscale 或飞书。密码和邮箱验证码只在学校浏览器页面输入。')
     while True:
-        say('\n1 设置时间 / 阈值 / 项目\n2 浏览器登录 / 续期\n3 立即查询\n4 前台监控\n5 后台监控\n6 停止监控\n7 查看状态\n8 重新选择房间\n0 退出菜单（不停止已启动的后台监控）')
+        say('\n1 设置阈值 / 项目\n2 浏览器登录 / 续期\n3 立即查询\n4 前台监控\n5 后台监控\n6 停止监控\n7 查看状态\n8 重新选择房间\n0 退出菜单（不停止已启动的后台监控）')
         try:
             choice = ask('请选择', '7')
             if choice == '0':
@@ -292,7 +301,7 @@ def main():
                 say('运行状态：' + ('监控运行中' if store.running() else '已停止'))
                 cfg = store.read('account', {}).get('config', {})
                 if cfg:
-                    say('每日时间（北京时间）：' + cfg['query_time'])
+                    say('查询频率：每 30 分钟')
                     for item in cfg['items']:
                         threshold = cfg['thresholds'][item]
                         say(LABELS[item] + ('：不提醒' if threshold is None else f'：低于 {threshold} 提醒'))

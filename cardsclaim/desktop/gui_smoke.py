@@ -57,6 +57,24 @@ def run(report):
             target.attributes('-topmost', False)
 
         def step_one():
+            def guide_buttons(widget):
+                for child in widget.winfo_children():
+                    if isinstance(child, tk.Button):
+                        yield child
+                    yield from guide_buttons(child)
+            app.show_guide()
+            with patch('cardsclaim.desktop.gui.messagebox.askyesno') as prompt:
+                app.ask_startup()
+                prompt.assert_not_called()
+            for index in range(3):
+                screenshot(f'gui-guide-{index + 1}', app.guide_window)
+                title = '开始使用' if index == 2 else '下一步'
+                next(button for button in guide_buttons(app.guide_window) if button.cget('text') == title).invoke()
+            assert store.read('preferences')['guide_seen']
+            assert app.guide_window is None
+            app.show_guide()
+            next(button for button in guide_buttons(app.guide_window) if button.cget('text') == '跳过引导').invoke()
+            results.append('three-step guide, completion, skip, reopening and deferred startup prompt')
             with patch('cardsclaim.desktop.gui.messagebox.askyesno', return_value=False) as prompt:
                 app.ask_startup()
                 self_answer = store.read('preferences', {})
@@ -73,6 +91,13 @@ def run(report):
             assert not store.read('account')
             screenshot('gui-setup')
             results.append('first-run setup and real Windows tray ready')
+            app.email_settings()
+            root.update()
+            email_window = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][0]
+            screenshot('gui-email-setup', email_window)
+            email_window.destroy()
+            assert not store.read('email')
+            results.append('optional first-run QQ email dialog can be skipped without enabling mail')
             cfg = default_config()
             balances = {'electricity': {'amount': '86.40', 'unit': '度'},
                         'tap_water': {'amount': '12.50', 'unit': '元'}}
@@ -170,6 +195,32 @@ def run(report):
             results.append('settings startup toggle applies immediately without changing reminders')
             settings[0].destroy()
             results.append('dashboard, settings and restore work on Tk main thread')
+            app.history()
+            root.update()
+            history_window = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][0]
+            from tkinter import ttk
+            trees = [w for w in descendants(history_window) if isinstance(w, ttk.Treeview)]
+            assert len(trees[0].get_children()) == 2
+            from .date_picker import DatePicker
+            date_pickers = [w for w in descendants(history_window) if isinstance(w, DatePicker)]
+            assert len(date_pickers) == 2
+            filter_buttons = {w.cget('text'): w for w in descendants(history_window) if isinstance(w, ttk.Button)}
+            filter_buttons['今天'].invoke()
+            assert len(trees[0].get_children()) == 2
+            filter_buttons['近 30 天'].invoke()
+            assert len(trees[0].get_children()) == 2
+            date_pickers[0].open_calendar()
+            root.update()
+            calendar_window = [w for w in date_pickers[0].winfo_children() if isinstance(w, tk.Toplevel)][0]
+            screenshot('gui-date-calendar', calendar_window)
+            calendar_buttons = [w for w in descendants(calendar_window) if isinstance(w, ttk.Button)]
+            next(w for w in calendar_buttons if w.cget('text') == '选择今天').invoke()
+            filter_buttons['查询范围'].invoke()
+            assert len(trees[0].get_children()) == 2
+            results.append('calendar range selection and today/30-day quick filters work without typing')
+            screenshot('gui-query-history', history_window)
+            history_window.destroy()
+            results.append('query history shows persisted per-item login balances with scrollable columns')
             app.quit()
 
         def guarded(callback):
