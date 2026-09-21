@@ -47,7 +47,7 @@ class RestartStorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             exe=Path(tmp)/'app'/'CardsClaim.exe'
             with patch.object(sys,'frozen',True,create=True), patch.object(sys,'executable',str(exe)):
-                self.assertEqual(default_data_dir(),exe.parent/'data')
+                self.assertEqual(default_data_dir(),exe.resolve().parent/'data')
 
     def test_profile_account_and_state_migrate_without_overwriting_local(self):
         with tempfile.TemporaryDirectory() as tmp:
