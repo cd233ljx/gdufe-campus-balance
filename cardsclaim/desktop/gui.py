@@ -22,6 +22,7 @@ from .app import stop
 from .controller import Controller, default_config
 from .model import validate
 from .store import DesktopStore
+from .startup import StartupRegistration
 from ..api import QueryError
 
 BG = '#F3F5F7'
@@ -54,9 +55,10 @@ def icon_image():
 
 
 class DesktopWindow:
-    def __init__(self, root, store, *, autostart=True, tray=True):
+    def __init__(self, root, store, *, autostart=True, tray=True, startup=None):
         self.root, self.store = root, store
         self.controller = Controller(store)
+        self.startup = startup if startup is not None else StartupRegistration()
         self.events = queue.Queue()
         self.busy = False
         self.closing = False
@@ -71,6 +73,16 @@ class DesktopWindow:
         self.page = 'setup'
         root.title('GDUFE Campus Balance · 校园余额')
         self.window_icon = ImageTk.PhotoImage(icon_image())
+        self.check_images = []
+        for selected in (False, True):
+            mark = Image.new('RGBA', (96, 80), 'white')
+            draw = ImageDraw.Draw(mark)
+            draw.rounded_rectangle((4, 8, 68, 72), radius=12,
+                                   fill=ACCENT if selected else 'white',
+                                   outline=ACCENT if selected else '#8B9CA6', width=5)
+            if selected:
+                draw.line((18, 39, 31, 53, 55, 27), fill='white', width=8, joint='curve')
+            self.check_images.append(ImageTk.PhotoImage(mark.resize((24, 20), Image.Resampling.LANCZOS)))
         root.iconphoto(True, self.window_icon)
         root.geometry('820x700')
         root.minsize(740, 680)
@@ -110,6 +122,33 @@ class DesktopWindow:
             if autostart and self.store.read('login-draft', {}).get('token'):
                 root.after(200, self.begin_setup)
         root.after(100, self.pump)
+        if autostart:
+            root.after(500, self.ask_startup)
+
+    def checkbox(self, parent, text, variable, command=None):
+        return tk.Checkbutton(parent, text=text, variable=variable, command=command,
+                              indicatoron=False, image=self.check_images[0],
+                              selectimage=self.check_images[1], compound='left',
+                              bg='white', activebackground='white', selectcolor='white',
+                              fg=INK, bd=0, padx=5, pady=5, cursor='hand2',
+                              highlightthickness=1, highlightbackground='white', highlightcolor=ACCENT)
+
+    def ask_startup(self):
+        preferences = self.store.read('preferences', {})
+        if preferences.get('startup_prompted'):
+            return
+        if self.busy:
+            self.root.after(500, self.ask_startup)
+            return
+        enable = messagebox.askyesno('开机自启',
+            '是否开机后自动启动 GDUFE Campus Balance？\n\n登录 Windows 后自动打开软件并恢复监控。\n之后可以在“设置”中随时修改。',
+            default=messagebox.NO, parent=self.root)
+        try:
+            self.startup.set_enabled(enable)
+            preferences['startup_prompted'] = True
+            self.store.write('preferences', preferences)
+        except (OSError, ValueError):
+            messagebox.showerror('开机自启', '开机自启设置未能保存，请稍后在设置中重试。', parent=self.root)
 
     def button(self, parent, text, command, *, secondary=False, tracked=True):
         button = tk.Button(parent, text=text, command=command, relief='flat', bd=0,
@@ -148,7 +187,7 @@ class DesktopWindow:
         for item in ITEMS:
             var = tk.BooleanVar(value=item in self.setup_cfg['items'])
             self.selected[item] = var
-            widget = ttk.Checkbutton(row, text=NAMES[item], variable=var)
+            widget = self.checkbox(row, NAMES[item], var)
             widget.pack(side='left', padx=(0, 15))
             self.select_widgets.append(widget)
         tk.Label(panel, text=f"每天 {self.setup_cfg['query_time']} 自动查询，余额不足时提醒。\n时间和提醒金额可以稍后在设置中修改。",
@@ -446,6 +485,25 @@ class DesktopWindow:
             values[item] = var
             ttk.Entry(panel, textvariable=var, width=15).grid(row=row, column=1)
         n = len(values) + 2
+        try:
+            initial_startup = self.startup.enabled()
+        except (OSError, ValueError):
+            messagebox.showerror('开机自启', '无法读取开机自启状态，请稍后重试。', parent=window)
+            window.destroy()
+            return
+        startup_enabled = tk.BooleanVar(value=initial_startup)
+        def toggle_startup():
+            try:
+                self.startup.set_enabled(startup_enabled.get())
+                preferences = self.store.read('preferences', {})
+                preferences['startup_prompted'] = True
+                self.store.write('preferences', preferences)
+            except (OSError, ValueError):
+                startup_enabled.set(not startup_enabled.get())
+                messagebox.showerror('开机自启', '开机自启设置未能保存，请重试。', parent=window)
+        self.checkbox(panel, '开机自启（登录 Windows 后自动运行）', startup_enabled,
+                      toggle_startup).grid(row=n, column=0, columnspan=2, sticky='w', pady=(12, 0))
+        n += 1
         tk.Label(panel, text='低于设定值时提醒；留空关闭该项提醒。\n关闭主窗口仍继续监控，退出程序则停止。', bg='white', fg=MUTED, justify='left').grid(row=n, column=0, columnspan=2, sticky='w', pady=15)
         def save():
             cfg['query_time'] = when.get().strip()

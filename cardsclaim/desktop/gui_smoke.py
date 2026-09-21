@@ -13,6 +13,7 @@ import time
 import traceback
 import threading
 import tkinter as tk
+from unittest.mock import patch
 
 from PIL import ImageGrab
 
@@ -37,20 +38,37 @@ def run(report):
         os.environ['CARDSCLAIM_DATA_DIR'] = directory
         store = DesktopStore()
         root = tk.Tk()
-        app = DesktopWindow(root, store, autostart=False)
+        class FakeStartup:
+            value = False
+            def enabled(self): return self.value
+            def set_enabled(self, value): self.value = value
+        startup = FakeStartup()
+        app = DesktopWindow(root, store, autostart=False, startup=startup)
         lock = store.lock('window.lock')
         lock.__enter__()
 
-        def screenshot(name):
-            root.attributes('-topmost', True)
-            root.update()
+        def screenshot(name, target=None):
+            target = target or root
+            target.attributes('-topmost', True)
+            target.update()
             time.sleep(.3)
-            box = (root.winfo_rootx(), root.winfo_rooty(), root.winfo_rootx() + root.winfo_width(), root.winfo_rooty() + root.winfo_height())
+            box = (target.winfo_rootx(), target.winfo_rooty(), target.winfo_rootx() + target.winfo_width(), target.winfo_rooty() + target.winfo_height())
             ImageGrab.grab(bbox=box).save(report.with_name(name + '.png'))
-            root.attributes('-topmost', False)
+            target.attributes('-topmost', False)
 
         def step_one():
-            assert app.page == 'setup'
+            with patch('cardsclaim.desktop.gui.messagebox.askyesno', return_value=False) as prompt:
+                app.ask_startup()
+                self_answer = store.read('preferences', {})
+                assert self_answer.get('startup_prompted') and not startup.enabled()
+                app.ask_startup()
+                assert prompt.call_count == 1
+            store.write('preferences', {})
+            with patch('cardsclaim.desktop.gui.messagebox.askyesno', return_value=True):
+                app.ask_startup()
+                assert startup.enabled()
+            results.append('first-launch startup opt-in/out persists and is asked only once; registry mocked')
+            assert app.page == 'setup' 
             assert app.tray_ready, 'tray did not start'
             assert not store.read('account')
             screenshot('gui-setup')
@@ -138,6 +156,18 @@ def run(report):
             root.update()
             settings = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
             assert len(settings) == 1
+            def descendants(widget):
+                for child in widget.winfo_children():
+                    yield child
+                    yield from descendants(child)
+            toggles = [w for w in descendants(settings[0]) if isinstance(w, tk.Checkbutton)]
+            assert len(toggles) == 1
+            toggles[0].invoke()
+            assert not startup.enabled()
+            toggles[0].invoke()
+            assert startup.enabled()
+            screenshot('gui-startup-settings', settings[0])
+            results.append('settings startup toggle applies immediately without changing reminders')
             settings[0].destroy()
             results.append('dashboard, settings and restore work on Tk main thread')
             app.quit()

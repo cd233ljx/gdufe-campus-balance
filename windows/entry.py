@@ -1,5 +1,11 @@
 # SPDX-License-Identifier: Apache-2.0
 # Copyright 2026 CardsClaim contributors
+from pathlib import Path
+import sys
+
+# A logon entry starts outside the repository working directory.
+if not getattr(sys, 'frozen', False):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from cardsclaim.desktop.app import main
 
 if __name__ == '__main__':
