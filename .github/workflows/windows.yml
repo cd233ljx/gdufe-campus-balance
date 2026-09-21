@@ -1,0 +1,30 @@
+name: Windows tests and build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-and-build:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - name: Install locked runtime dependencies
+        shell: pwsh
+        run: |
+          python -m venv .venv-windows
+          .\.venv-windows\Scripts\python.exe -m pip install --require-hashes -r requirements.lock
+      - name: Run tests with synthetic campus responses
+        run: .\.venv-windows\Scripts\python.exe -m unittest discover -s tests -v
+      - name: Build Windows distribution
+        shell: cmd
+        run: windows\build.cmd

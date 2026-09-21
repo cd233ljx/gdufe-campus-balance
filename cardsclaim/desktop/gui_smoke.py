@@ -1,0 +1,172 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2026 CardsClaim contributors
+"""Real native GUI smoke test with isolated, synthetic account data."""
+import asyncio
+import ctypes
+from datetime import datetime
+import json
+import os
+from pathlib import Path
+import subprocess
+import tempfile
+import time
+import traceback
+import threading
+import tkinter as tk
+
+from PIL import ImageGrab
+
+from .app import child_command, stop
+from .controller import default_config
+from .gui import DesktopWindow
+from .model import TZ
+from .store import DesktopStore
+
+
+def run(report):
+    report = Path(report).resolve()
+    report.parent.mkdir(parents=True, exist_ok=True)
+    results = []
+    original = os.environ.get('CARDSCLAIM_DATA_DIR')
+    failure = None
+    try:
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        pass
+    with tempfile.TemporaryDirectory(prefix='CardsClaim GUI 中文 ', ignore_cleanup_errors=True) as directory:
+        os.environ['CARDSCLAIM_DATA_DIR'] = directory
+        store = DesktopStore()
+        root = tk.Tk()
+        app = DesktopWindow(root, store, autostart=False)
+        lock = store.lock('window.lock')
+        lock.__enter__()
+
+        def screenshot(name):
+            root.attributes('-topmost', True)
+            root.update()
+            time.sleep(.3)
+            box = (root.winfo_rootx(), root.winfo_rooty(), root.winfo_rootx() + root.winfo_width(), root.winfo_rooty() + root.winfo_height())
+            ImageGrab.grab(bbox=box).save(report.with_name(name + '.png'))
+            root.attributes('-topmost', False)
+
+        def step_one():
+            assert app.page == 'setup'
+            assert app.tray_ready, 'tray did not start'
+            assert not store.read('account')
+            screenshot('gui-setup')
+            results.append('first-run setup and real Windows tray ready')
+            cfg = default_config()
+            balances = {'electricity': {'amount': '86.40', 'unit': '度'},
+                        'tap_water': {'amount': '12.50', 'unit': '元'}}
+            catalog = {item: {'source': '学校已绑定',
+                'selected': {'campus':'campus-bound','building':'building-bound','room':'room-bound'},
+                'options': {'campus':[{'name':'其他校区','value':'campus-other'},{'name':'示例校区','value':'campus-bound'}],
+                            'building':[{'name':'示例宿舍楼','value':'building-bound'}],
+                            'room':[{'name':'101','value':'room-other'},{'name':'808','value':'room-bound'}]}}
+                for item in cfg['items']}
+            def completed_login(*args):
+                store.write('login-draft', {'config': cfg, 'token': 'offline-test-only', 'cookies': []})
+                return cfg, 'offline-test-only', None
+            app.controller.prepare_login = completed_login
+            app.controller.load_rooms = lambda config: (config, catalog)
+            app.controller.load_choices = lambda *args: [{'name':'新楼栋','value':'new-building'}]
+            app.controller.finish_rooms = lambda config: app.controller.commit_login((config, 'offline-test-only', balances))
+            app.begin_setup()
+            deadline = time.monotonic() + 18
+            def wait_dashboard():
+                if app.page == 'dashboard' and not app.busy:
+                    assert app.amounts['electricity'].get() == '86.40'
+                    account = store.read('account')
+                    assert account['token'] == 'offline-test-only'
+                    assert account['config']['params']['electricity']['room'] == 'room-bound'
+                    assert app.status.get().startswith('登录成功')
+                    results.append('native room confirmation, encrypted save and automatic monitoring/dashboard')
+                    root.after(500, guarded(step_two))
+                elif time.monotonic() >= deadline:
+                    raise AssertionError('room confirmation did not transition to dashboard')
+                else:
+                    root.after(100, guarded(wait_dashboard))
+            def wait_cascade():
+                if not app.busy:
+                    picker = app.room_picker
+                    assert picker.boxes['electricity']['room'].get() == ''
+                    assert picker.maps['electricity']['room'] == {}
+                    assert picker.boxes['electricity']['building'].get() == ''
+                    results.append('changing parent selection clears stale building/room; room search never retains stale code')
+                    app.show_rooms((cfg, catalog))
+                    app.room_picker.submit()
+                    root.after(100, guarded(wait_dashboard))
+                else:
+                    root.after(100, guarded(wait_cascade))
+            def wait_rooms():
+                if not app.busy and app.page == 'rooms':
+                    assert store.read('login-draft').get('token')
+                    assert not store.running()
+                    picker = app.room_picker
+                    assert picker.boxes['electricity']['campus'].get() == '示例校区'
+                    assert picker.boxes['electricity']['room'].get() == '808'
+                    screenshot('gui-native-rooms')
+                    results.append('login automatically returns to native room picker with school-bound defaults, not first options')
+                    picker.boxes['electricity']['room'].set('999')
+                    picker.filter_rooms('electricity')
+                    assert 'room' not in picker.rows['electricity']
+                    picker.boxes['electricity']['campus'].set('其他校区')
+                    picker.changed('electricity','campus')
+                    root.after(100, guarded(wait_cascade))
+                elif time.monotonic() >= deadline:
+                    raise AssertionError('native room picker did not open')
+                else:
+                    root.after(100, guarded(wait_rooms))
+            root.after(100, guarded(wait_rooms))
+
+        def step_two():
+            screenshot('gui-dashboard')
+            app.hide()
+            root.update()
+            assert root.state() == 'withdrawn'
+            assert store.running(), 'closing window stopped monitor'
+            child = subprocess.Popen(child_command(True), creationflags=subprocess.CREATE_NO_WINDOW)
+            child.wait(timeout=15)
+            assert child.returncode == 0
+            assert store.read('show-window', {}).get('at')
+            results.append('close-to-tray keeps monitoring; second launch signals existing window')
+            root.after(2400, guarded(step_three))
+
+        def step_three():
+            assert root.state() == 'normal', 'second launch did not restore window'
+            app.settings()
+            root.update()
+            settings = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)]
+            assert len(settings) == 1
+            settings[0].destroy()
+            results.append('dashboard, settings and restore work on Tk main thread')
+            app.quit()
+
+        def guarded(callback):
+            def run_step():
+                nonlocal failure
+                try:
+                    callback()
+                except Exception:
+                    failure = traceback.format_exc()
+                    app.destroy()
+            return run_step
+
+        root.after(2000, guarded(step_one))
+        root.after(45000, guarded(lambda: (_ for _ in ()).throw(AssertionError('GUI self-test timeout'))))
+        try:
+            root.mainloop()
+            assert not store.running(), 'exit did not stop monitoring'
+            results.append('quit stops monitoring and destroys tray/window')
+        except Exception:
+            failure = traceback.format_exc()
+        finally:
+            stop(store)
+            lock.__exit__(None, None, None)
+            if original is None:
+                os.environ.pop('CARDSCLAIM_DATA_DIR', None)
+            else:
+                os.environ['CARDSCLAIM_DATA_DIR'] = original
+    report.write_text(json.dumps({'ok': failure is None, 'passed': results, 'error': failure}, ensure_ascii=False, indent=2), encoding='utf-8')
+    if failure:
+        raise SystemExit(1)
