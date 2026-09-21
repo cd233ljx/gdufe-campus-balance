@@ -221,7 +221,15 @@ def run(report):
             screenshot('gui-query-history', history_window)
             history_window.destroy()
             results.append('query history shows persisted per-item login balances with scrollable columns')
-            app.quit()
+            with patch('cardsclaim.desktop.gui.messagebox.askyesno', return_value=False) as confirm:
+                app.quit()
+                confirm.assert_called_once()
+                assert confirm.call_args.kwargs['default'] == 'no'
+                assert '停止自动余额查询' in confirm.call_args.args[1]
+            assert store.running() and not app.closing and not app.busy
+            results.append('cancel close confirmation preserves background monitoring; defaults to no')
+            with patch('cardsclaim.desktop.gui.messagebox.askyesno', return_value=True):
+                app.quit()
 
         def guarded(callback):
             def run_step():

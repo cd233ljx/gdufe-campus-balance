@@ -112,7 +112,7 @@ class DesktopWindow:
         footer.pack(fill='x', pady=(14, 0))
         tk.Label(footer, text='关闭窗口后留在托盘 · 电脑开机且联网时自动查询', bg=BG, fg=MUTED,
                  font=('Microsoft YaHei UI', 9)).pack(side='left')
-        self.button(footer, '退出程序', self.quit, secondary=True, tracked=False).pack(side='right')
+        self.button(footer, '关闭程序', self.quit, secondary=True, tracked=False).pack(side='right')
         self.button(footer, '使用指南', self.show_guide, secondary=True, tracked=False).pack(side='right', padx=8)
         if tray:
             self.start_tray()
@@ -161,15 +161,15 @@ class DesktopWindow:
              '1. 选择宿舍电量、自来水或力王热水。\n\n'
              '2. 在 Edge / Chrome 中完成学校登录，随后会自动回到软件。\n\n'
              '3. 核对软件中显示的校区、楼栋、房间或手机号，点击确认后开始监控。'),
-            ('开启提醒，也可以先跳过邮箱',
+            ('邮箱提醒服务',
              '设置 → QQ 邮箱告警 → 发送测试邮件并保存',
-             '填写自己的 QQ 邮箱地址和 SMTP 授权码，即可给自己发送告警。授权码不是 QQ 登录密码。\n\n'
+             '填写自己的 QQ 邮箱地址和 SMTP 授权码，即可给自己发送告警（授权码不是 QQ 登录密码。\n\n'
              '绑定时先发送测试邮件，成功后才保存；请检查收件箱或垃圾箱。\n\n'
              '余额首次低于阈值会提醒，持续低余额不重复发送；恢复后再次低于才重发。阈值可在设置中修改。'),
-            ('查看历史，放心留在托盘运行',
-             '每 30 分钟查询 · 日历选范围 · 历史可翻页',
+            ('查看历史记录',
+             '每 30 分钟查询记录一次，点击“查询历史”可查看记录',
              '在“查询历史”点击日历选择开始和结束日期，也可选今天、近 7 天或近 30 天。记录多时可翻页查看。\n\n'
-             '关闭主窗口后软件留在托盘继续监控；点击“退出程序”才会停止。关机、睡眠或断网时无法查询。\n\n'
+             '关闭主窗口后软件留在托盘继续监控；点击“关闭程序”并确认后才会停止。关机、睡眠或断网时无法查询。\n\n'
              '稍后可选择是否开机自启。此引导可随时通过主窗口底部的“使用指南”重新打开。')]
         def finish():
             preferences = self.store.read('preferences', {})
@@ -346,7 +346,7 @@ class DesktopWindow:
                     'network': '网络暂时不可用，显示上次余额。联网后可点击刷新。',
                     'business': '学校暂未接受查询，可在设置中重新选择房间。',
                     'parse': '学校返回的余额暂时无法识别，显示上次成功结果。',
-                    'ok': '余额低于设定值时会提醒你。无需保持此窗口打开。'}.get(status, '准备查询余额…')
+                    'ok': '点击右上角“x”按钮关闭窗口，余额低于设定值时将发送提醒。无需保持此窗口打开。'}.get(status, '准备查询余额…')
             if time.monotonic() >= self.success_until:
                 mail = self.store.read('email-state', {})
                 if mail.get('error'):
@@ -370,7 +370,7 @@ class DesktopWindow:
         self.tray = pystray.Icon('GDUFE Campus Balance', icon_image(), 'GDUFE Campus Balance · 校园余额', pystray.Menu(
             pystray.MenuItem('打开余额窗口', lambda: self.events.put(('show', None)), default=True),
             pystray.MenuItem('刷新余额', lambda: self.events.put(('refresh', None))),
-            pystray.MenuItem('退出并停止监控', lambda: self.events.put(('quit', None)))))
+            pystray.MenuItem('关闭程序', lambda: self.events.put(('quit', None)))))
         def run():
             try:
                 self.tray.run(setup=ready)
@@ -601,7 +601,7 @@ class DesktopWindow:
         self.checkbox(panel, '开机自启（登录 Windows 后自动运行）', startup_enabled,
                       toggle_startup).grid(row=n, column=0, columnspan=2, sticky='w', pady=(12, 0))
         n += 1
-        tk.Label(panel, text='低于设定值时提醒；留空关闭该项提醒。\n关闭主窗口仍继续监控，退出程序则停止。', bg='white', fg=MUTED, justify='left').grid(row=n, column=0, columnspan=2, sticky='w', pady=15)
+        tk.Label(panel, text='低于设定值时提醒；留空关闭该项提醒。\n关闭主窗口仍继续监控；关闭程序并确认后停止。', bg='white', fg=MUTED, justify='left').grid(row=n, column=0, columnspan=2, sticky='w', pady=15)
         def save():
             cfg['thresholds'].update({k: v.get().strip() or None for k, v in values.items()})
             try:
@@ -761,13 +761,24 @@ class DesktopWindow:
         load()
 
     def quit(self):
+        if getattr(self, 'confirming_close', False):
+            return
         if self.busy:
-            if self.login_active:
-                self.cancel_login()
-            self.status.set('正在完成当前操作，请稍后再退出。')
+            self.status.set('正在完成当前操作，请稍后再关闭程序。')
             self.show()
             return
-        self.job(lambda: stop(self.store), lambda _: self.destroy(), '正在停止监控并退出…')
+        self.show()
+        self.confirming_close = True
+        try:
+            confirmed = messagebox.askyesno('确认关闭程序？',
+                '关闭程序将同时关闭后台，停止自动余额查询和余额不足告警。\n\n'
+                '如果只是暂时不看窗口，请取消，再点击右上角 ×，软件会留在托盘继续监控。\n\n'
+                '确定关闭程序吗？', default=messagebox.NO, parent=self.root)
+        finally:
+            self.confirming_close = False
+        if not confirmed:
+            return
+        self.job(lambda: stop(self.store), lambda _: self.destroy(), '正在关闭后台并停止监控…')
 
     def destroy(self):
         self.closing = True
