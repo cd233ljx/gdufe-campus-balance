@@ -8,6 +8,8 @@ import subprocess
 import tomllib
 
 root = Path(__file__).resolve().parents[1]
+if (root / 'dist' / 'CardsClaim' / 'data').exists():
+    raise SystemExit('Back up and move dist/CardsClaim/data before rebuilding; build output will be replaced.')
 version = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
 commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
 dirty = bool(subprocess.check_output(['git', '-C', str(root), 'status', '--porcelain'], text=True).strip())

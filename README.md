@@ -6,7 +6,7 @@
 
 ## 下载与使用
 
-前往 [Releases](https://github.com/cd233ljx/gdufe-campus-balance/releases/latest)，下载 `CardsClaim-v0.1.0-windows-x64.zip`，**完整解压**后双击 `CardsClaim.exe`。不要单独移动 EXE，旁边的 `_internal` 是运行必需文件。
+前往 [Releases](https://github.com/cd233ljx/gdufe-campus-balance/releases/latest)，下载 `CardsClaim-v0.1.1-windows-x64.zip`，**完整解压**后双击 `CardsClaim.exe`。不要单独移动 EXE，旁边的 `_internal` 是运行必需文件。
 
 1. 选择需要关注的项目，点击「登录学校账号」，在独立的 Edge / Chrome 窗口完成学校认证。
 2. 登录成功后自动返回软件，优先选中学校已绑定的房间或力王手机号。核对后点击「确认房间并开始监控」。没有有效绑定时，可直接在软件中选择校区、楼栋和房间。
@@ -26,9 +26,9 @@
 
 ## 登录与本地数据
 
-密码和验证码只在学校页面输入，程序不保存。浏览器使用独立临时会话，不读取日常浏览器资料。取得的校园卡凭证、房间设置与余额使用 Windows DPAPI 加密，保存在 `%USERPROFILE%\.cardsclaim`，与当前 Windows 用户绑定。更新程序时保留此目录即可沿用登录，不要随安装包一起分发。
+密码和验证码只在学校页面输入，程序不保存。浏览器使用独立临时会话，不读取日常浏览器资料。取得的校园卡凭证、房间设置与余额使用 Windows DPAPI 加密，保存在程序旁的 `data` 文件夹：源码运行时位于仓库根目录，打包版位于 EXE 旁边，与启动时所在目录无关。首次启动会自动迁移旧版用户目录中的有效登录和设置，原文件保留。加密仍与当前 Windows 用户绑定；更新程序时保留或复制整个 `data` 文件夹即可沿用登录。此文件夹已加入 Git 忽略规则，并从 Release 包中排除。
 
-如需卸载，先退出程序，再删除解压目录；希望同时清除登录时，再删除上述本地数据目录。请勿在 Issue 中上传 HAR、Cookie、Token、手机号或包含个人房间信息的截图。
+如需卸载，先退出程序，再删除解压目录；删除程序旁的 `data` 文件夹也会清除本地登录。请勿在 Issue 中上传 HAR、Cookie、Token、手机号或包含个人房间信息的截图。
 
 ## 从源码运行
 
@@ -59,7 +59,7 @@ Start-Process .\dist\CardsClaim\CardsClaim.exe -ArgumentList '--gui-self-test bu
 Get-Content build/gui-report.json
 ```
 
-当前 27 项测试覆盖阈值、提醒去重、凭证保存、绑定选择、登录窗口关闭、迁移及跨启动环境共享数据。浏览器测试使用真实 Edge 驱动和拦截后的模拟校园页面。已有本机实际登录、查询、绑定读取及重启复用验证；未验证所有校区房间与长时间休眠恢复。
+自动化测试覆盖阈值、提醒去重、凭证保存、绑定选择、登录窗口关闭、迁移及跨启动环境共享数据。浏览器测试使用真实 Edge 驱动和拦截后的模拟校园页面。已有本机实际登录、查询、绑定读取及重启复用验证；未验证所有校区房间与长时间休眠恢复。
 
 ## 仓库结构
 

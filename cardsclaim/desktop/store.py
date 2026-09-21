@@ -4,6 +4,7 @@
 import ctypes
 import json
 import os
+import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
@@ -34,12 +35,16 @@ def crypt(data, decrypt=False):
         kernel.LocalFree(target.data)
 
 
+def default_data_dir():
+    base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
+    return base / 'data'
+
+
 class DesktopStore:
     def __init__(self, root=None, codec=crypt):
         override = os.environ.get('CARDSCLAIM_DATA_DIR')
-        # MSIX descendants can transparently redirect LocalAppData into Codex's
-        # package cache. The user-profile root is shared with Explorer launches.
-        self.root = Path(root or override or Path(os.environ['USERPROFILE']) / '.cardsclaim')
+        # Resolve from the program location, never the launch working directory.
+        self.root = Path(root or override or default_data_dir())
         self.root.mkdir(parents=True, exist_ok=True)
         self.codec = codec
         if root is None and not override:
@@ -47,7 +52,7 @@ class DesktopStore:
 
     def _migrate_legacy(self):
         local = Path(os.environ['LOCALAPPDATA'])
-        candidates = [local / 'CardsClaim']
+        candidates = [Path(os.environ['USERPROFILE']) / '.cardsclaim', local / 'CardsClaim']
         packages = local / 'Packages'
         if packages.is_dir():
             candidates.extend(packages.glob('OpenAI.Codex_*/LocalCache/Local/CardsClaim'))

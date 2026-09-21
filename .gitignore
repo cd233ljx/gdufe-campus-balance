@@ -17,6 +17,7 @@ dist/
 .cardsclaim/
 incoming/
 state/
+data/
 account
 login-draft
 login-status

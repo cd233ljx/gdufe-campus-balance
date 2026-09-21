@@ -33,7 +33,7 @@ def main():
     source = destination / f'CardsClaim-v{version}-source.zip'
     with zipfile.ZipFile(binary, 'w', zipfile.ZIP_DEFLATED) as archive:
         for path in sorted(app.rglob('*')):
-            if path.is_file():
+            if path.is_file() and path.relative_to(app).parts[0] != 'data':
                 archive.write(path, Path('CardsClaim') / path.relative_to(app))
     # Git's archive contains precisely the committed source, with no caches,
     # accounts, logs, screenshots, old ZIPs, or untracked local captures.
