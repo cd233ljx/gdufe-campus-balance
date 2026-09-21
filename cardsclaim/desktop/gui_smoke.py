@@ -38,6 +38,12 @@ def run(report):
         os.environ['CARDSCLAIM_DATA_DIR'] = directory
         store = DesktopStore()
         root = tk.Tk()
+        small_screen = os.environ.get('CARDSCLAIM_GUI_SMALL_SCREEN') == '1'
+        layout_patch = None
+        if small_screen:
+            root.tk.call('tk', 'scaling', 2.0)
+            layout_patch = patch('cardsclaim.desktop.layout.work_area', return_value=(0, 0, 1024, 640))
+            layout_patch.start()
         class FakeStartup:
             value = False
             def enabled(self): return self.value
@@ -91,10 +97,31 @@ def run(report):
             assert not store.read('account')
             screenshot('gui-setup')
             results.append('first-run setup and real Windows tray ready')
+            if small_screen:
+                assert root.winfo_height() <= 576
+                footer_buttons = [w for w in guide_buttons(root) if w.cget('text') in ('关闭程序', '使用指南')]
+                assert len(footer_buttons) == 2
+                for button in footer_buttons:
+                    assert button.winfo_rooty() + button.winfo_height() <= root.winfo_rooty() + root.winfo_height()
+                assert app.body_scroll.canvas.yview()[1] < 1
+                app.body_scroll.canvas.yview_moveto(1)
+                root.update()
+                screenshot('gui-small-screen-scrolled')
+                app.body_scroll.canvas.yview_moveto(0)
+                results.append('1024x640 work area at 150% text scaling: footer visible and body scrollable')
             app.email_settings()
             root.update()
             email_window = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][0]
             screenshot('gui-email-setup', email_window)
+            if small_screen:
+                assert email_window.winfo_height() <= 576
+                from .layout import ScrollPane
+                pane = next(w for w in email_window.winfo_children() if isinstance(w, ScrollPane))
+                pane.canvas.yview_moveto(1)
+                root.update()
+                last = next(w for w in guide_buttons(email_window) if w.cget('text') == '暂不设置 / 返回')
+                assert last.winfo_rooty() + last.winfo_height() <= email_window.winfo_rooty() + email_window.winfo_height()
+                screenshot('gui-small-email-scrolled', email_window)
             email_window.destroy()
             assert not store.read('email')
             results.append('optional first-run QQ email dialog can be skipped without enabling mail')
@@ -250,6 +277,8 @@ def run(report):
         except Exception:
             failure = traceback.format_exc()
         finally:
+            if layout_patch:
+                layout_patch.stop()
             stop(store)
             lock.__exit__(None, None, None)
             if original is None:

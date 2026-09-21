@@ -23,6 +23,7 @@ from .app import stop
 from .controller import Controller, default_config
 from .model import validate, TZ
 from .store import DesktopStore
+from .layout import ScrollPane, fit_window
 from .startup import StartupRegistration
 from ..api import QueryError
 
@@ -86,8 +87,6 @@ class DesktopWindow:
                 draw.line((18, 39, 31, 53, 55, 27), fill='white', width=8, joint='curve')
             self.check_images.append(ImageTk.PhotoImage(mark.resize((24, 20), Image.Resampling.LANCZOS)))
         root.iconphoto(True, self.window_icon)
-        root.geometry('820x800')
-        root.minsize(740, 780)
         root.configure(bg=BG)
         root.protocol('WM_DELETE_WINDOW', self.hide)
         root.report_callback_exception = self.callback_error
@@ -100,16 +99,20 @@ class DesktopWindow:
         self.outer = tk.Frame(root, bg=BG, padx=30, pady=24)
         self.outer.pack(fill='both', expand=True)
         header = tk.Frame(self.outer, bg=BG)
-        header.pack(fill='x')
+        header.grid(row=0, column=0, sticky='ew')
         tk.Label(header, text='GDUFE Campus Balance', bg=BG, fg=INK, font=('Segoe UI', 23, 'bold')).pack(side='left')
         tk.Label(header, text='校园余额助手', bg=BG, fg=MUTED).pack(side='left', padx=14, pady=(12, 0))
-        self.body = tk.Frame(self.outer, bg=BG)
-        self.body.pack(fill='both', expand=True, pady=(22, 10))
+        self.outer.columnconfigure(0, weight=1)
+        self.outer.rowconfigure(1, weight=1)
+        self.body_scroll = ScrollPane(self.outer, bg=BG)
+        self.body_scroll.grid(row=1, column=0, sticky='nsew', pady=(14, 8))
+        self.body = tk.Frame(self.body_scroll.content, bg=BG)
+        self.body.pack(fill='both', expand=True)
         self.status = tk.StringVar(value='欢迎使用。先连接你的校园卡。')
         tk.Label(self.outer, textvariable=self.status, bg=BG, fg=MUTED, anchor='w',
-                 justify='left', wraplength=680).pack(fill='x')
+                 justify='left', wraplength=680).grid(row=2, column=0, sticky='ew')
         footer = tk.Frame(self.outer, bg=BG)
-        footer.pack(fill='x', pady=(14, 0))
+        footer.grid(row=3, column=0, sticky='ew', pady=(10, 0))
         tk.Label(footer, text='关闭窗口后留在托盘 · 电脑开机且联网时自动查询', bg=BG, fg=MUTED,
                  font=('Microsoft YaHei UI', 9)).pack(side='left')
         self.button(footer, '关闭程序', self.quit, secondary=True, tracked=False).pack(side='right')
@@ -124,6 +127,9 @@ class DesktopWindow:
             self.setup()
             if autostart and self.store.read('login-draft', {}).get('token'):
                 root.after(200, self.begin_setup)
+        fit_window(root, 1000, 900, saved=store.read('preferences', {}).get('window_bounds'))
+        self.window_save_after = None
+        root.bind('<Configure>', self.window_changed, add='+')
         root.after(100, self.pump)
         if autostart:
             if (not store.read('preferences', {}).get('guide_seen')
@@ -142,8 +148,6 @@ class DesktopWindow:
         self.guide_window = window
         window.title('欢迎使用 · 校园余额助手')
         window.configure(bg=BG)
-        window.geometry('700x510')
-        window.resizable(False, False)
         window.transient(self.root)
         window.grab_set()
         outer = tk.Frame(window, bg=BG, padx=28, pady=24)
@@ -151,10 +155,12 @@ class DesktopWindow:
         progress = tk.StringVar()
         tk.Label(outer, textvariable=progress, bg=BG, fg=ACCENT,
                  font=('Microsoft YaHei UI', 11, 'bold')).pack(anchor='w')
-        content = tk.Frame(outer, bg='white', padx=24, pady=20)
-        content.pack(fill='both', expand=True, pady=18)
         navigation = tk.Frame(outer, bg=BG)
-        navigation.pack(fill='x')
+        navigation.pack(side='bottom', fill='x')
+        guide_scroll = ScrollPane(outer, bg='white')
+        guide_scroll.pack(fill='both', expand=True, pady=18)
+        content = tk.Frame(guide_scroll.content, bg='white', padx=24, pady=20)
+        content.pack(fill='both', expand=True)
         steps = [
             ('连接校园卡，确认自己的房间',
              '选择余额项目 → 登录学校账号 → 确认房间',
@@ -200,6 +206,23 @@ class DesktopWindow:
                 self.button(navigation, '上一步', lambda: render(index - 1),
                             secondary=True, tracked=False).pack(side='right', padx=8)
         render(0)
+        fit_window(window, 700, 510)
+
+    def window_changed(self, event):
+        if event.widget != self.root or self.closing or self.root.state() != 'normal':
+            return
+        if self.window_save_after:
+            self.root.after_cancel(self.window_save_after)
+        self.window_save_after = self.root.after(600, self.remember_window)
+
+    def remember_window(self):
+        self.window_save_after = None
+        if self.root.state() != 'normal':
+            return
+        preferences = self.store.read('preferences', {})
+        preferences['window_bounds'] = {'x': self.root.winfo_x(), 'y': self.root.winfo_y(),
+                                        'width': self.root.winfo_width(), 'height': self.root.winfo_height()}
+        self.store.write('preferences', preferences)
 
     def checkbox(self, parent, text, variable, command=None):
         return tk.Checkbutton(parent, text=text, variable=variable, command=command,
@@ -240,6 +263,7 @@ class DesktopWindow:
         for child in self.body.winfo_children():
             child.destroy()
         self.buttons = []
+        self.body_scroll.canvas.yview_moveto(0)
 
     def setup(self):
         self.clear()
@@ -384,6 +408,7 @@ class DesktopWindow:
         self.root.focus_force()
 
     def hide(self):
+        self.remember_window()
         if self.tray_ready:
             self.root.withdraw()
         else:
@@ -556,8 +581,10 @@ class DesktopWindow:
         window.resizable(False, False)
         window.transient(self.root)
         window.grab_set()
-        panel = tk.Frame(window, bg='white', padx=28, pady=24)
-        panel.pack()
+        scroll = ScrollPane(window)
+        scroll.pack(fill='both', expand=True)
+        panel = tk.Frame(scroll.content, bg='white', padx=28, pady=24)
+        panel.pack(fill='both', expand=True)
         tk.Label(panel, text='提醒设置', bg='white', fg=INK, font=('Microsoft YaHei UI', 17, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 20))
         tk.Label(panel, text='查询频率：常驻期间每 30 分钟一次', bg='white', fg=ACCENT).grid(row=1, column=0, columnspan=2, sticky='w')
         mail = self.store.read('email', {})
@@ -616,6 +643,8 @@ class DesktopWindow:
             window.destroy()
             self.setup()
         self.button(panel, '更换房间 / 项目', choose, secondary=True, tracked=False).grid(row=n+1, column=0, sticky='w')
+        window.update_idletasks()
+        fit_window(window, panel.winfo_reqwidth() + 20, panel.winfo_reqheight() + 20)
 
     def email_settings(self):
         if self.busy:
@@ -627,8 +656,10 @@ class DesktopWindow:
         window.transient(self.root)
         window.grab_set()
         window.resizable(False, False)
-        panel = tk.Frame(window, bg='white', padx=26, pady=24)
-        panel.pack()
+        scroll = ScrollPane(window)
+        scroll.pack(fill='both', expand=True)
+        panel = tk.Frame(scroll.content, bg='white', padx=26, pady=24)
+        panel.pack(fill='both', expand=True)
         tk.Label(panel, text='绑定 QQ 邮箱，接收低余额提醒', bg='white', fg=INK,
                  font=('Microsoft YaHei UI', 16, 'bold')).pack(anchor='w')
         tk.Label(panel, text='填写自己的 QQ 邮箱和 SMTP 授权码，邮件会发送到这个邮箱。\n'
@@ -671,6 +702,8 @@ class DesktopWindow:
                             lambda _: (window.destroy(), self.status.set('邮箱告警已关闭，授权码已删除。'))),
                         secondary=True).pack(fill='x', pady=(8, 0))
         self.button(panel, '暂不设置 / 返回', close, secondary=True).pack(fill='x', pady=(8, 0))
+        window.update_idletasks()
+        fit_window(window, panel.winfo_reqwidth() + 20, panel.winfo_reqheight() + 20)
 
     def history(self):
         if self.busy:
@@ -679,9 +712,9 @@ class DesktopWindow:
         from .date_picker import DatePicker
         window = tk.Toplevel(self.root)
         window.title('查询历史 · 余额核对')
-        window.geometry('1000x600')
-        window.minsize(800, 450)
-        panel = ttk.Frame(window, padding=16)
+        scroll = ScrollPane(window)
+        scroll.pack(fill='both', expand=True)
+        panel = ttk.Frame(scroll.content, padding=16)
         panel.pack(fill='both', expand=True)
         ttk.Label(panel, text='每次自动、手动及登录验证查询均留存；日期和时间为北京时间。').pack(anchor='w')
         ttk.Label(panel, text='余额变化 = 本次余额 − 同房间上次成功余额；包含充值等变化，不等同于消费账单。').pack(anchor='w', pady=(4, 12))
@@ -759,6 +792,7 @@ class DesktopWindow:
         following.pack(side='left', padx=8)
         ttk.Button(filters, text='查询范围', width=10, command=load).pack(side='left', padx=8)
         load()
+        fit_window(window, 1000, 600)
 
     def quit(self):
         if getattr(self, 'confirming_close', False):
@@ -781,6 +815,7 @@ class DesktopWindow:
         self.job(lambda: stop(self.store), lambda _: self.destroy(), '正在关闭后台并停止监控…')
 
     def destroy(self):
+        self.remember_window()
         self.closing = True
         if self.tray:
             self.tray.stop()
