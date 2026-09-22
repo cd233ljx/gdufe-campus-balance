@@ -12,7 +12,7 @@ if __name__ == '__main__':
     import sys
     try:
         main()
-    except Exception:
+    except Exception as error:
         if '--gui-self-test' in sys.argv:
             import json
             import traceback
@@ -20,4 +20,7 @@ if __name__ == '__main__':
             target = Path(sys.argv[sys.argv.index('--gui-self-test') + 1])
             target.write_text(json.dumps({'ok': False, 'error': traceback.format_exc()}), encoding='utf-8')
             raise SystemExit(1)
+        import ctypes
+        message = str(error) if isinstance(error, ValueError) else '软件启动失败，请检查安装目录和数据目录是否可访问，或重新运行安装器修复。原有数据会保留。'
+        ctypes.windll.user32.MessageBoxW(None, message, '校园余额助手', 0x10)
         raise

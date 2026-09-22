@@ -195,6 +195,13 @@ def run(report):
             root.update()
             assert root.state() == 'withdrawn'
             assert store.running(), 'closing window stopped monitor'
+            previous_show = store.read('show-window', {})
+            startup_child = subprocess.Popen([*child_command(True), '--startup'], creationflags=subprocess.CREATE_NO_WINDOW)
+            startup_child.wait(timeout=15)
+            assert startup_child.returncode == 0
+            assert store.read('show-window', {}) == previous_show
+            assert root.state() == 'withdrawn'
+            results.append('logon startup does not reopen an existing hidden window')
             child = subprocess.Popen(child_command(True), creationflags=subprocess.CREATE_NO_WINDOW)
             child.wait(timeout=15)
             assert child.returncode == 0

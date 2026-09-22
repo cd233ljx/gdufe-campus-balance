@@ -7,7 +7,7 @@ import shutil
 import sys
 
 root = Path(__file__).resolve().parents[1]
-target = root / 'dist' / 'gdufe-campus-balance' / 'THIRD-PARTY-LICENSES'
+target = (Path(sys.argv[1]) if len(sys.argv) > 1 else root / 'dist' / 'gdufe-campus-balance') / 'THIRD-PARTY-LICENSES'
 target.mkdir(exist_ok=True)
 names = ['aiohttp', 'aiohappyeyeballs', 'aiosignal', 'attrs', 'frozenlist',
          'greenlet', 'idna', 'multidict', 'playwright', 'propcache', 'pyee',

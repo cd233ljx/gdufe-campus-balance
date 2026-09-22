@@ -34,7 +34,7 @@ class StartupTests(unittest.TestCase):
     def test_frozen_path_with_spaces_is_quoted(self):
         path = str(Path('C:/A folder/校园余额/gdufe-campus-balance.exe').resolve())
         with patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', path):
-            self.assertEqual(startup_command(), subprocess.list2cmdline([path]))
+            self.assertEqual(startup_command(), subprocess.list2cmdline([path, '--startup']))
 
     def test_source_uses_absolute_entry_and_pythonw(self):
         with patch.object(sys, 'frozen', False, create=True):
@@ -42,6 +42,11 @@ class StartupTests(unittest.TestCase):
         self.assertIn('pythonw.exe', command)
         self.assertIn(str(Path(__file__).resolve().parents[1] / 'windows' / 'entry.py'), command)
         self.assertNotIn(' -m ', command)
+
+    def test_frozen_command_matches_installer_even_without_spaces(self):
+        path = str(Path('C:/Apps/Balance/app.exe').resolve())
+        with patch.object(sys, 'frozen', True, create=True), patch.object(sys, 'executable', path):
+            self.assertEqual(startup_command(), f'"{path}" --startup')
 
     def test_permission_failure_is_not_reported_as_success(self):
         with patch('winreg.CreateKeyEx', side_effect=PermissionError):

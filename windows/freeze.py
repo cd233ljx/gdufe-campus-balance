@@ -6,9 +6,14 @@ import sys
 import json
 import subprocess
 import tomllib
+import argparse
 
 root = Path(__file__).resolve().parents[1]
-if (root / 'dist' / 'gdufe-campus-balance' / 'data').exists():
+parser = argparse.ArgumentParser()
+parser.add_argument('--distpath', type=Path, default=root / 'dist')
+args = parser.parse_args()
+distpath = args.distpath.resolve()
+if (distpath / 'gdufe-campus-balance' / 'data').exists():
     raise SystemExit('Back up and move dist/gdufe-campus-balance/data before rebuilding; build output will be replaced.')
 version = tomllib.loads((root / 'pyproject.toml').read_text(encoding='utf-8'))['project']['version']
 commit = subprocess.check_output(['git', '-C', str(root), 'rev-parse', 'HEAD'], text=True).strip()
@@ -21,10 +26,11 @@ configure_tk()
 (root / 'build').mkdir(exist_ok=True)
 icon_image().save(root / 'build' / 'cardsclaim.ico')
 run(['--noconfirm', '--clean', '--onedir', '--windowed', '--name', 'gdufe-campus-balance',
+     '--distpath', str(distpath),
      '--icon', str(root / 'build' / 'cardsclaim.ico'), '--paths', str(root),
      '--collect-all', 'playwright', '--hidden-import', 'pystray._win32',
      str(root / 'windows' / 'entry.py')])
-(root / 'dist' / 'gdufe-campus-balance' / 'build-info.json').write_text(
+(distpath / 'gdufe-campus-balance' / 'build-info.json').write_text(
     json.dumps({'version': version, 'commit': commit, 'dirty': dirty,
                 'python': sys.version.split()[0], 'platform': 'windows-x64'}, indent=2),
     encoding='utf-8')

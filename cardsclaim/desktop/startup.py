@@ -16,7 +16,8 @@ def startup_command():
     else:
         args = [str(Path(sys.executable).resolve().with_name('pythonw.exe')),
                 str(Path(__file__).resolve().parents[2] / 'windows' / 'entry.py')]
-    command = subprocess.list2cmdline(args)
+    args.append('--startup')
+    command = ('"' + args[0] + '" --startup') if getattr(sys, 'frozen', False) else subprocess.list2cmdline(args)
     if len(command) > 260:
         raise ValueError('程序路径过长，请将程序移到较短的路径后再开启开机自启。')
     return command

@@ -22,7 +22,7 @@ from ..common import ITEMS, LABELS
 from .app import stop
 from .controller import Controller, default_config
 from .model import validate, TZ
-from .store import DesktopStore
+from .store import DesktopStore, installation
 from .layout import ScrollPane, fit_window
 from .startup import StartupRegistration
 from ..api import QueryError
@@ -57,7 +57,7 @@ def icon_image():
 
 
 class DesktopWindow:
-    def __init__(self, root, store, *, autostart=True, tray=True, startup=None):
+    def __init__(self, root, store, *, autostart=True, tray=True, startup=None, start_hidden=False):
         self.root, self.store = root, store
         self.controller = Controller(store)
         self.startup = startup if startup is not None else StartupRegistration()
@@ -67,6 +67,7 @@ class DesktopWindow:
         self.login_active = False
         self.tray = None
         self.tray_ready = False
+        self.start_hidden = start_hidden
         self.last_show = store.read('show-window', {}).get('at')
         self.next_status = 0
         self.success_until = 0
@@ -131,7 +132,7 @@ class DesktopWindow:
         self.window_save_after = None
         root.bind('<Configure>', self.window_changed, add='+')
         root.after(100, self.pump)
-        if autostart:
+        if autostart and not start_hidden:
             if (not store.read('preferences', {}).get('guide_seen')
                     and not store.read('account', {}).get('token')
                     and not store.read('login-draft', {}).get('token')):
@@ -176,7 +177,7 @@ class DesktopWindow:
              '每 30 分钟查询记录一次，点击“查询历史”可查看记录',
              '在“查询历史”点击日历选择开始和结束日期，也可选今天、近 7 天或近 30 天。记录多时可翻页查看。\n\n'
              '关闭主窗口后软件留在托盘继续监控；点击“关闭程序”并确认后才会停止。关机、睡眠或断网时无法查询。\n\n'
-             '稍后可选择是否开机自启。此引导可随时通过主窗口底部的“使用指南”重新打开。')]
+             '可在“设置”中随时修改开机自启。此引导可通过主窗口底部的“使用指南”重新打开。')]
         def finish():
             preferences = self.store.read('preferences', {})
             preferences['guide_seen'] = True
@@ -233,6 +234,8 @@ class DesktopWindow:
                               highlightthickness=1, highlightbackground='white', highlightcolor=ACCENT)
 
     def ask_startup(self):
+        if installation():
+            return  # The installer already asked, including an explicit opt-out.
         preferences = self.store.read('preferences', {})
         if preferences.get('startup_prompted'):
             return
@@ -403,6 +406,7 @@ class DesktopWindow:
         threading.Thread(target=run, daemon=True).start()
 
     def show(self):
+        self.start_hidden = False
         self.root.deiconify()
         self.root.lift()
         self.root.focus_force()
@@ -475,6 +479,8 @@ class DesktopWindow:
                     self.setup()
                 elif event == 'tray_ready':
                     self.tray_ready = True
+                    if self.start_hidden:
+                        self.hide()
                 elif event == 'tray_failed':
                     self.tray_ready = False
                     self.show()
@@ -822,7 +828,7 @@ class DesktopWindow:
         self.root.destroy()
 
 
-def main(choose_rooms=False):
+def main(choose_rooms=False, start_hidden=False):
     try:
         ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
@@ -832,11 +838,14 @@ def main(choose_rooms=False):
     try:
         lock.__enter__()
     except ValueError:
-        store.write('show-window', {'at': time.time_ns()})
+        if not start_hidden:
+            store.write('show-window', {'at': time.time_ns()})
         return
     try:
         root = tk.Tk()
-        app = DesktopWindow(root, store, autostart=not choose_rooms)
+        if start_hidden:
+            root.withdraw()
+        app = DesktopWindow(root, store, autostart=not choose_rooms, start_hidden=start_hidden)
         if choose_rooms:
             app.setup()
             root.after(200, app.begin_setup)

@@ -251,6 +251,7 @@ def main():
             stream.reconfigure(encoding='utf-8', errors='replace')
     parser = argparse.ArgumentParser(description='GDUFE Campus Balance Windows 本机版')
     parser.add_argument('--background', action='store_true')
+    parser.add_argument('--startup', action='store_true', help='登录 Windows 后启动到托盘')
     parser.add_argument('--instance', help=argparse.SUPPRESS)
     parser.add_argument('--console', action='store_true', help='使用旧版终端菜单')
     parser.add_argument('--rooms', action='store_true', help='打开软件内房间选择')
@@ -268,6 +269,8 @@ def main():
         from .gui_smoke import run
         run(args.gui_self_test)
         return
+    from .lifecycle import hold_install_mutex
+    hold_install_mutex()
     if args.notify:
         if not args.notify.startswith('notice-') or len(args.notify) != 39 or any(c not in '0123456789abcdef' for c in args.notify[7:]):
             parser.exit(2)
@@ -285,7 +288,7 @@ def main():
         return
     if not args.console:
         from .gui import main as window_main
-        window_main(choose_rooms=args.rooms)
+        window_main(choose_rooms=args.rooms, start_hidden=args.startup)
         return
     say('GDUFE Campus Balance Windows 本机版\n无需服务器、Tailscale 或飞书。密码和邮箱验证码只在学校浏览器页面输入。')
     while True:

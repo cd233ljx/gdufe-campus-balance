@@ -2,12 +2,29 @@
 # Copyright 2026 CardsClaim contributors
 """Per-Windows-user DPAPI encrypted data and a single-process lock."""
 import ctypes
+import configparser
 import json
 import os
 import sys
 import tempfile
 from contextlib import contextmanager
 from pathlib import Path
+
+
+def installation():
+    """Only the installer writes this marker; ZIP/source keep portable storage."""
+    if not getattr(sys, 'frozen', False):
+        return {}
+    marker = Path(sys.executable).resolve().parent / 'installation.ini'
+    if not marker.exists():
+        return {}
+    parser = configparser.ConfigParser(interpolation=None)
+    content = marker.read_bytes()
+    parser.read_string(content.decode('utf-16' if content.startswith((b'\xff\xfe', b'\xfe\xff')) else 'utf-8-sig'))
+    result = dict(parser['install'])
+    if not Path(result['datadir']).is_absolute():
+        raise ValueError('安装数据目录无效，请重新运行安装器修复。')
+    return result
 
 
 def crypt(data, decrypt=False):
@@ -36,6 +53,9 @@ def crypt(data, decrypt=False):
 
 
 def default_data_dir():
+    installed = installation()
+    if installed:
+        return Path(installed['datadir'])
     base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
     return base / 'data'
 
@@ -47,7 +67,7 @@ class DesktopStore:
         self.root = Path(root or override or default_data_dir())
         self.root.mkdir(parents=True, exist_ok=True)
         self.codec = codec
-        if root is None and not override:
+        if root is None and not override and not installation():
             self._migrate_legacy()
 
     def _migrate_legacy(self):
