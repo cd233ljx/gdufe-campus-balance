@@ -228,6 +228,28 @@ def run(report):
             screenshot('gui-startup-settings', settings[0])
             results.append('settings startup toggle applies immediately without changing reminders')
             settings[0].destroy()
+            app.network.configure({'student_id': 'synthetic-test', 'password': 'synthetic-only',
+                                   'auto_login': False, 'check_interval': 30})
+            app.network_enabled.set(True)
+            app.toggle_network()
+            assert app.network.snapshot()['auto_login']
+            assert app.network.thread is None, 'GUI test must not start a live network worker'
+            app.network_settings()
+            screenshot('gui-network-settings', app.network_window)
+            app.network_window.destroy()
+            app.network_enabled.set(False)
+            app.toggle_network()
+            assert not app.network.snapshot()['auto_login']
+            screenshot('gui-network-dashboard')
+            results.append('home network toggle and network settings share persistent config without live requests')
+            with patch.object(app, 'job', side_effect=lambda work, done, text: done([
+                    {'label': '测试校园卡', 'balance': '12.34', 'unsettled': '0.00',
+                     'electronic': '5.00', 'status': '未挂失 · 未冻结', 'expiry': '2027-12-31'}])):
+                app.card_overview()
+            card_window = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][0]
+            screenshot('gui-campus-card', card_window)
+            card_window.destroy()
+            results.append('campus card overview opens and displays synthetic balances, flags and expiry')
             results.append('dashboard, settings and restore work on Tk main thread')
             app.history()
             root.update()

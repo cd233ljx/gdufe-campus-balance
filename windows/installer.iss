@@ -70,7 +70,7 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "{#ProductName}"; Tasks: not startup; Flags: deletevalue
 
 [Run]
-Filename: "{app}\gdufe-campus-balance.exe"; Description: "立即启动校园余额助手"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\gdufe-campus-balance.exe"; Description: "立即启动广财校园工具箱"; Flags: nowait postinstall skipifsilent
 
 [Code]
 var

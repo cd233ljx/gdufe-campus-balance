@@ -26,6 +26,14 @@ class Controller:
         self.login_task = None
         self.cancel_requested = threading.Event()
 
+    def card_overview(self):
+        from .card_overview import query
+        token = self.store.read('account', {}).get('token') or self.store.read('login-draft', {}).get('token')
+        async def load():
+            async with session() as http:
+                return await query(http, token)
+        return asyncio.run(load())
+
     def ready(self):
         try:
             account_ready(self.store)

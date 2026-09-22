@@ -13,7 +13,7 @@ import sys
 import time
 import traceback
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import messagebox, ttk, filedialog
 
 from PIL import Image, ImageDraw, ImageTk
 import pystray
@@ -26,6 +26,8 @@ from .store import DesktopStore, installation
 from .layout import ScrollPane, fit_window
 from .startup import StartupRegistration
 from ..api import QueryError
+from .network import NetworkMonitor
+from .model import due
 
 BG = '#F3F5F7'
 INK = '#142A38'
@@ -62,6 +64,11 @@ class DesktopWindow:
         self.controller = Controller(store)
         self.startup = startup if startup is not None else StartupRegistration()
         self.events = queue.Queue()
+        self.network = NetworkMonitor(store.root, lambda data: self.events.put(('network', data)))
+        self.network_enabled = tk.BooleanVar(value=self.network.snapshot()['auto_login'])
+        self.network_status = tk.StringVar(value='等待校园网检测' if self.network_enabled.get() else '校园网自动登录已关闭')
+        self.network_recovery_pending = False
+        self.network_window = None
         self.busy = False
         self.closing = False
         self.login_active = False
@@ -75,7 +82,7 @@ class DesktopWindow:
         self.guide_window = None
         self.buttons = []
         self.page = 'setup'
-        root.title('GDUFE Campus Balance · 校园余额')
+        root.title('广财校园工具箱 · GDUFE')
         self.window_icon = ImageTk.PhotoImage(icon_image())
         self.check_images = []
         for selected in (False, True):
@@ -101,8 +108,8 @@ class DesktopWindow:
         self.outer.pack(fill='both', expand=True)
         header = tk.Frame(self.outer, bg=BG)
         header.grid(row=0, column=0, sticky='ew')
-        tk.Label(header, text='GDUFE Campus Balance', bg=BG, fg=INK, font=('Segoe UI', 23, 'bold')).pack(side='left')
-        tk.Label(header, text='校园余额助手', bg=BG, fg=MUTED).pack(side='left', padx=14, pady=(12, 0))
+        tk.Label(header, text='广财校园工具箱', bg=BG, fg=INK, font=('Microsoft YaHei UI', 23, 'bold')).pack(side='left')
+        tk.Label(header, text='让校园生活更方便', bg=BG, fg=MUTED).pack(side='left', padx=14, pady=(12, 0))
         self.outer.columnconfigure(0, weight=1)
         self.outer.rowconfigure(1, weight=1)
         self.body_scroll = ScrollPane(self.outer, bg=BG)
@@ -132,6 +139,8 @@ class DesktopWindow:
         self.window_save_after = None
         root.bind('<Configure>', self.window_changed, add='+')
         root.after(100, self.pump)
+        if autostart:
+            self.network.start()
         if autostart and not start_hidden:
             if (not store.read('preferences', {}).get('guide_seen')
                     and not store.read('account', {}).get('token')
@@ -147,7 +156,7 @@ class DesktopWindow:
             return
         window = tk.Toplevel(self.root)
         self.guide_window = window
-        window.title('欢迎使用 · 校园余额助手')
+        window.title('欢迎使用 · 广财校园工具箱')
         window.configure(bg=BG)
         window.transient(self.root)
         window.grab_set()
@@ -170,7 +179,7 @@ class DesktopWindow:
              '3. 核对软件中显示的校区、楼栋、房间或手机号，点击确认后开始监控。'),
             ('邮箱提醒服务',
              '设置 → QQ 邮箱告警 → 发送测试邮件并保存',
-             '填写自己的 QQ 邮箱地址和 SMTP 授权码，即可给自己发送告警（授权码不是 QQ 登录密码。\n\n'
+             '填写自己的 QQ 邮箱地址和 SMTP 授权码，即可给自己发送告警（授权码不是 QQ 登录密码）。\n\n'
              '绑定时先发送测试邮件，成功后才保存；请检查收件箱或垃圾箱。\n\n'
              '余额首次低于阈值会提醒，持续低余额不重复发送；恢复后再次低于才重发。阈值可在设置中修改。'),
             ('查看历史记录',
@@ -310,6 +319,8 @@ class DesktopWindow:
         self.button(self.body, '可选：绑定 QQ 邮箱告警', self.email_settings, secondary=True).pack(anchor='w', pady=(14, 0))
         tk.Label(self.body, text='不绑定也可使用；以后可在设置里添加。绑定时会发送测试邮件。',
                  bg=BG, fg=MUTED).pack(anchor='w', pady=(6, 0))
+        self.network_switch(self.body)
+        self.button(self.body, '校园网设置', self.network_settings, secondary=True).pack(anchor='w', pady=8)
 
     def dashboard(self):
         self.clear()
@@ -320,8 +331,10 @@ class DesktopWindow:
                  font=('Microsoft YaHei UI', 21, 'bold')).pack(side='left')
         self.button(top, '设置', self.settings, secondary=True).pack(side='right')
         self.button(top, '查询历史', self.history, secondary=True).pack(side='right', padx=8)
+        self.button(top, '校园卡', self.card_overview, secondary=True).pack(side='right')
         self.updated = tk.StringVar()
         tk.Label(self.body, textvariable=self.updated, bg=BG, fg=MUTED).pack(anchor='w', pady=(8, 20))
+        self.network_switch(self.body)
         cards = tk.Frame(self.body, bg=BG)
         cards.pack(fill='x')
         cfg = self.store.read('account', {})['config']
@@ -394,7 +407,7 @@ class DesktopWindow:
         def ready(icon):
             icon.visible = True
             self.events.put(('tray_ready', None))
-        self.tray = pystray.Icon('GDUFE Campus Balance', icon_image(), 'GDUFE Campus Balance · 校园余额', pystray.Menu(
+        self.tray = pystray.Icon('GDUFE Campus Balance', icon_image(), '广财校园工具箱 · GDUFE', pystray.Menu(
             pystray.MenuItem('打开余额窗口', lambda: self.events.put(('show', None)), default=True),
             pystray.MenuItem('刷新余额', lambda: self.events.put(('refresh', None))),
             pystray.MenuItem('关闭程序', lambda: self.events.put(('quit', None)))))
@@ -490,10 +503,21 @@ class DesktopWindow:
                     self.refresh()
                 elif event == 'quit':
                     self.quit()
+                elif event == 'network':
+                    revision, code, text, recovered = payload
+                    if revision == self.network.revision:
+                        self.network_status.set(text)
+                        self.network_recovery_pending |= recovered
         except queue.Empty:
             pass
         if self.closing:
             return
+        if self.network_recovery_pending and not self.busy and self.controller.ready():
+            self.network_recovery_pending = False
+            account = self.store.read('account', {})
+            state = self.store.read('state', {})
+            if state.get('status') == 'network' or due(account['config'], state):
+                self.refresh()
         if time.monotonic() >= self.next_status:
             self.next_status = time.monotonic() + 2
             signal = self.store.read('show-window', {}).get('at')
@@ -615,6 +639,12 @@ class DesktopWindow:
             values[item] = var
             ttk.Entry(panel, textvariable=var, width=15).grid(row=row, column=1)
         n = len(values) + 3
+        def network_settings():
+            window.destroy()
+            self.network_settings()
+        self.button(panel, '校园网自动登录设置', network_settings,
+                    tracked=False).grid(row=n, column=0, columnspan=2, sticky='ew', pady=12)
+        n += 1
         try:
             initial_startup = self.startup.enabled()
         except (OSError, ValueError):
@@ -651,6 +681,129 @@ class DesktopWindow:
         self.button(panel, '更换房间 / 项目', choose, secondary=True, tracked=False).grid(row=n+1, column=0, sticky='w')
         window.update_idletasks()
         fit_window(window, panel.winfo_reqwidth() + 20, panel.winfo_reqheight() + 20)
+
+    def card_overview(self):
+        if self.busy:
+            return
+        def show(cards):
+            window = tk.Toplevel(self.root)
+            window.title('校园卡概览')
+            window.transient(self.root)
+            window.configure(bg=BG)
+            scroll = ScrollPane(window, bg=BG)
+            scroll.pack(fill='both', expand=True)
+            panel = tk.Frame(scroll.content, bg=BG, padx=24, pady=20)
+            panel.pack(fill='both', expand=True)
+            tk.Label(panel, text='校园卡概览', bg=BG, fg=INK,
+                     font=('Microsoft YaHei UI', 18, 'bold')).pack(anchor='w')
+            tk.Label(panel, text='本次查询：' + datetime.now(TZ).strftime('%Y-%m-%d %H:%M:%S'),
+                     bg=BG, fg=MUTED).pack(anchor='w', pady=(8, 16))
+            if not cards:
+                tk.Label(panel, text='学校未返回可展示的校园卡。', bg=BG, fg=MUTED).pack(anchor='w')
+            for card in cards:
+                box = tk.Frame(panel, bg='white', padx=18, pady=14)
+                box.pack(fill='x', pady=8)
+                tk.Label(box, text=card['label'], bg='white', fg=INK,
+                         font=('Microsoft YaHei UI', 13, 'bold')).pack(anchor='w')
+                for label, value in [('卡账户余额', card['balance'] + ' 元'),
+                                     ('其中待结算金额', card['unsettled'] + ' 元'),
+                                     ('电子账户余额', card['electronic'] + ' 元'),
+                                     ('挂失 / 冻结状态', card['status']), ('有效期', card['expiry'])]:
+                    tk.Label(box, text=label + '：' + value, bg='white', fg=INK,
+                             justify='left', wraplength=430).pack(anchor='w', pady=5)
+            tk.Label(panel, text='待结算金额已计入卡账户余额，两种账户分别展示。\n按需查询，不参与水电低额告警。',
+                     bg=BG, fg=MUTED, justify='left', wraplength=440).pack(anchor='w', pady=12)
+            self.button(panel, '关闭', window.destroy, secondary=True, tracked=False).pack(anchor='e')
+            fit_window(window, 560, 590)
+        self.job(self.controller.card_overview, show, '正在查询校园卡信息…')
+
+    def network_switch(self, parent):
+        row = tk.Frame(parent, bg='white', padx=12, pady=8)
+        row.pack(fill='x', pady=(0, 14))
+        self.checkbox(row, '校园网自动登录', self.network_enabled,
+                      self.toggle_network).pack(side='left')
+        tk.Label(row, textvariable=self.network_status, bg='white', fg=MUTED,
+                 wraplength=440, justify='left').pack(side='left', padx=16)
+
+    def toggle_network(self):
+        cfg = self.network.snapshot()
+        desired = self.network_enabled.get()
+        if desired and (not cfg['student_id'] or not cfg['password']):
+            self.network_enabled.set(False)
+            self.network_settings(enable=True)
+            return
+        cfg['auto_login'] = desired
+        try:
+            self.network.configure(cfg)
+        except (ValueError, OSError):
+            self.network_enabled.set(not desired)
+            messagebox.showerror('校园网设置', '开关未保存，请检查配置及目录权限。', parent=self.root)
+            return
+        self.network_status.set('等待校园网检测' if desired else '校园网自动登录已关闭')
+
+    def network_settings(self, enable=False):
+        if self.network_window and self.network_window.winfo_exists():
+            self.network_window.lift()
+            return
+        cfg = self.network.snapshot()
+        window = self.network_window = tk.Toplevel(self.root)
+        window.title('校园网自动登录设置')
+        window.transient(self.root)
+        window.configure(bg='white')
+        window.grab_set()
+        footer = tk.Frame(window, bg='white', padx=18, pady=12)
+        footer.pack(side='bottom', fill='x')
+        scroll = ScrollPane(window, bg='white')
+        scroll.pack(fill='both', expand=True)
+        panel = tk.Frame(scroll.content, bg='white', padx=24, pady=20)
+        panel.pack(fill='both', expand=True)
+        tk.Label(panel, text='校园网自动登录', bg='white', fg=INK,
+                 font=('Microsoft YaHei UI', 17, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=12)
+        tk.Label(panel, text='用于校园网认证，与校园卡登录分别设置。', bg='white', fg=MUTED).grid(row=1, column=0, columnspan=2, sticky='w', pady=8)
+        student = tk.StringVar(value=cfg['student_id'])
+        password = tk.StringVar(value=cfg['password'])
+        interval = tk.StringVar(value=str(cfg['check_interval']))
+        enabled = tk.BooleanVar(value=enable or cfg['auto_login'])
+        for row, label, var in ((2, '校园网账号', student), (3, '校园网密码', password), (4, '检测间隔（秒）', interval)):
+            tk.Label(panel, text=label, bg='white').grid(row=row, column=0, sticky='w', pady=10)
+            ttk.Entry(panel, textvariable=var, width=28, show='*' if row == 3 else '').grid(row=row, column=1, padx=12)
+        self.checkbox(panel, '开启校园网自动登录', enabled).grid(row=5, column=0, columnspan=2, sticky='w', pady=10)
+        tk.Label(panel, text='检测间隔为 5 至 300 秒，掉线后自动认证。\n网络恢复后按需补查余额。\n账号密码明文保存在本机 data/network.json，日志不记录密码。\n启用前请关闭独立版校园网登录工具。', bg='white', fg=MUTED,
+                 justify='left', wraplength=440).grid(row=6, column=0, columnspan=2, sticky='w', pady=12)
+        def save():
+            try:
+                draft = {'student_id': student.get().strip(), 'password': password.get(),
+                         'check_interval': int(interval.get()), 'auto_login': enabled.get()}
+                self.network.configure(draft)
+            except (ValueError, OSError):
+                messagebox.showerror('未保存', '请检查账号密码、5–300 秒的整数间隔及目录权限。', parent=window)
+                return
+            self.network_enabled.set(draft['auto_login'])
+            self.network_status.set('等待校园网检测' if draft['auto_login'] else '校园网自动登录已关闭')
+            window.destroy()
+        def import_config():
+            import json
+            filename = filedialog.askopenfilename(parent=window, title='选择独立版 data/account.json', filetypes=[('JSON 配置', '*.json')])
+            if not filename:
+                return
+            try:
+                from .network import validate as check_network_config
+                imported = check_network_config(json.loads(Path(filename).read_text(encoding='utf-8-sig')))
+                student.set(imported['student_id'])
+                password.set(imported['password'])
+                interval.set(str(imported['check_interval']))
+            except (ValueError, OSError):
+                messagebox.showerror('导入失败', '未能识别配置文件，现有设置保留。', parent=window)
+        self.button(footer, '保存', save, tracked=False).pack(side='right')
+        self.button(footer, '导入独立版账号', import_config, secondary=True, tracked=False).pack(side='left')
+        def retry():
+            if self.network.snapshot()['auto_login']:
+                self.network.retry()
+                self.network_status.set('已请求重试；已联网时不提交密码')
+            else:
+                messagebox.showinfo('校园网自动登录', '请先保存设置并开启校园网自动登录。', parent=window)
+        self.button(footer, '重试登录', retry, secondary=True, tracked=False).pack(side='left', padx=6)
+        fit_window(window, 580, 620)
 
     def email_settings(self):
         if self.busy:
@@ -811,7 +964,7 @@ class DesktopWindow:
         self.confirming_close = True
         try:
             confirmed = messagebox.askyesno('确认关闭程序？',
-                '关闭程序将同时关闭后台，停止自动余额查询和余额不足告警。\n\n'
+                '关闭程序将同时关闭后台，停止自动余额查询、余额不足告警和校园网自动登录。\n\n'
                 '如果只是暂时不看窗口，请取消，再点击右上角 ×，软件会留在托盘继续监控。\n\n'
                 '确定关闭程序吗？', default=messagebox.NO, parent=self.root)
         finally:
@@ -821,6 +974,7 @@ class DesktopWindow:
         self.job(lambda: stop(self.store), lambda _: self.destroy(), '正在关闭后台并停止监控…')
 
     def destroy(self):
+        self.network.close()
         self.remember_window()
         self.closing = True
         if self.tray:
