@@ -31,6 +31,14 @@ def work_area(window, point=None):
     return 0, 0, window.winfo_screenwidth(), window.winfo_screenheight()
 
 
+def home_size(window):
+    """Choose an initial size in logical pixels, bounded by monitor work area."""
+    scale = float(window.tk.call('tk', 'scaling')) / (96 / 72)
+    left, top, right, bottom = work_area(window, window.winfo_pointerxy())
+    return (min(round(920 * scale), right - left - 48),
+            min(round(760 * scale), bottom - top - 80))
+
+
 def fit_window(window, width=None, height=None, saved=None):
     owner = window.master.winfo_toplevel() if window.master else None
     if saved and not all(isinstance(saved.get(k), int) for k in ('x', 'y', 'width', 'height')):
@@ -79,8 +87,9 @@ def place_window(window, x, y):
 
 
 class ScrollPane(ttk.Frame):
-    def __init__(self, parent, bg='white'):
+    def __init__(self, parent, bg='white', *, horizontal=True):
         super().__init__(parent)
+        self.allow_horizontal = horizontal
         self.canvas = tk.Canvas(self, bg=bg, highlightthickness=0, bd=0)
         self.content = tk.Frame(self.canvas, bg=bg)
         self.item = self.canvas.create_window(0, 0, window=self.content, anchor='nw')
@@ -99,10 +108,18 @@ class ScrollPane(ttk.Frame):
         self.bind('<Destroy>', self.cleanup, add='+')
 
     def update_region(self, event=None):
-        width = max(self.content.winfo_reqwidth(), self.canvas.winfo_width())
+        width = max(self.content.winfo_reqwidth(), self.canvas.winfo_width()) if self.allow_horizontal else self.canvas.winfo_width()
         height = max(self.content.winfo_reqheight(), self.canvas.winfo_height())
         self.canvas.itemconfigure(self.item, width=width, height=height)
         self.canvas.configure(scrollregion=(0, 0, width, height))
+        if self.allow_horizontal and width > self.canvas.winfo_width() + 1:
+            self.horizontal.grid()
+        else:
+            self.horizontal.grid_remove()
+        if height > self.canvas.winfo_height() + 1:
+            self.vertical.grid()
+        else:
+            self.vertical.grid_remove()
 
     def wheel(self, event):
         widget = event.widget
@@ -119,3 +136,33 @@ class ScrollPane(ttk.Frame):
                 self.top.unbind('<MouseWheel>', self.binding)
             except tk.TclError:
                 pass
+
+
+class FlowFrame(tk.Frame):
+    """Wrap controls without coupling column widths across separate rows."""
+    def __init__(self, parent, **kwargs):
+        super().__init__(parent, **kwargs)
+        self.controls = []
+        self.bind('<Configure>', self.reflow)
+
+    def add(self, widget):
+        self.controls.append(widget)
+        widget.place(x=0, y=0)
+        self.after_idle(self.reflow)
+
+    def reflow(self, event=None):
+        limit = self.winfo_width()
+        if limit < 10:
+            return
+        x = y = line_height = 0
+        for widget in self.controls:
+            width, height = widget.winfo_reqwidth(), widget.winfo_reqheight()
+            if x and x + width > limit:
+                y += line_height + 8
+                x = line_height = 0
+            widget.place(x=x, y=y, width=min(width, limit), height=height)
+            x += width + 8
+            line_height = max(line_height, height)
+        desired = y + line_height
+        if int(self.cget('height')) != desired:
+            self.configure(height=desired)

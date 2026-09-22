@@ -23,7 +23,7 @@ from .app import stop
 from .controller import Controller, default_config
 from .model import validate, TZ
 from .store import DesktopStore, installation
-from .layout import ScrollPane, fit_window
+from .layout import ScrollPane, FlowFrame, fit_window, home_size
 from .startup import StartupRegistration
 from ..api import QueryError
 from .network import NetworkMonitor
@@ -108,11 +108,12 @@ class DesktopWindow:
         self.outer.pack(fill='both', expand=True)
         header = tk.Frame(self.outer, bg=BG)
         header.grid(row=0, column=0, sticky='ew')
-        tk.Label(header, text='广财校园工具箱', bg=BG, fg=INK, font=('Microsoft YaHei UI', 23, 'bold')).pack(side='left')
-        tk.Label(header, text='让校园生活更方便', bg=BG, fg=MUTED).pack(side='left', padx=14, pady=(12, 0))
+        self.brand_label = tk.Label(header, text='广财校园工具箱', bg=BG, fg=INK, font=('Microsoft YaHei UI', 23, 'bold'))
+        self.brand_label.pack(anchor='w')
+        tk.Label(header, text='让校园生活更方便', bg=BG, fg=MUTED).pack(anchor='w', pady=(4, 0))
         self.outer.columnconfigure(0, weight=1)
         self.outer.rowconfigure(1, weight=1)
-        self.body_scroll = ScrollPane(self.outer, bg=BG)
+        self.body_scroll = ScrollPane(self.outer, bg=BG, horizontal=False)
         self.body_scroll.grid(row=1, column=0, sticky='nsew', pady=(14, 8))
         self.body = tk.Frame(self.body_scroll.content, bg=BG)
         self.body.pack(fill='both', expand=True)
@@ -121,8 +122,8 @@ class DesktopWindow:
                  justify='left', wraplength=680).grid(row=2, column=0, sticky='ew')
         footer = tk.Frame(self.outer, bg=BG)
         footer.grid(row=3, column=0, sticky='ew', pady=(10, 0))
-        tk.Label(footer, text='关闭窗口后留在托盘 · 电脑开机且联网时自动查询', bg=BG, fg=MUTED,
-                 font=('Microsoft YaHei UI', 9)).pack(side='left')
+        tk.Label(footer, text='关闭窗口后留在托盘运行', bg=BG, fg=MUTED,
+                 font=('Microsoft YaHei UI', 9)).pack(anchor='w', pady=(0, 6))
         self.button(footer, '关闭程序', self.quit, secondary=True, tracked=False).pack(side='right')
         self.button(footer, '使用指南', self.show_guide, secondary=True, tracked=False).pack(side='right', padx=8)
         if tray:
@@ -135,9 +136,11 @@ class DesktopWindow:
             self.setup()
             if autostart and self.store.read('login-draft', {}).get('token'):
                 root.after(200, self.begin_setup)
-        fit_window(root, 1000, 900, saved=store.read('preferences', {}).get('window_bounds'))
+        fit_window(root, *home_size(root), saved=store.read('preferences', {}).get('window_bounds'))
         self.window_save_after = None
         root.bind('<Configure>', self.window_changed, add='+')
+        self.reflow_pending = None
+        root.bind('<Configure>', self.schedule_reflow, add='+')
         root.after(100, self.pump)
         if autostart:
             self.network.start()
@@ -275,6 +278,7 @@ class DesktopWindow:
         for child in self.body.winfo_children():
             child.destroy()
         self.buttons = []
+        self.balance_cards = []
         self.body_scroll.canvas.yview_moveto(0)
 
     def setup(self):
@@ -294,13 +298,13 @@ class DesktopWindow:
         self.setup_cfg = copy.deepcopy(draft.get('config') or account.get('config') or default_config())
         self.selected = {}
         self.select_widgets = []
-        row = tk.Frame(panel, bg='white')
-        row.pack(anchor='w', pady=(12, 8))
+        row = FlowFrame(panel, bg='white')
+        row.pack(fill='x', pady=(12, 8))
         for item in ITEMS:
             var = tk.BooleanVar(value=item in self.setup_cfg['items'])
             self.selected[item] = var
             widget = self.checkbox(row, NAMES[item], var)
-            widget.pack(side='left', padx=(0, 15))
+            row.add(widget)
             self.select_widgets.append(widget)
         tk.Label(panel, text="常驻期间每 30 分钟自动查询，余额不足时提醒。\n提醒金额可以稍后在设置中修改。",
                  bg='white', fg=MUTED, justify='left', anchor='w').pack(anchor='w', pady=(6, 0))
@@ -328,20 +332,24 @@ class DesktopWindow:
         top = tk.Frame(self.body, bg=BG)
         top.pack(fill='x')
         tk.Label(top, text='你的校园余额', bg=BG, fg=INK,
-                 font=('Microsoft YaHei UI', 21, 'bold')).pack(side='left')
-        self.button(top, '设置', self.settings, secondary=True).pack(side='right')
-        self.button(top, '查询历史', self.history, secondary=True).pack(side='right', padx=8)
-        self.button(top, '校园卡', self.card_overview, secondary=True).pack(side='right')
+                 font=('Microsoft YaHei UI', 21, 'bold')).pack(anchor='w', pady=(0, 8))
+        actions = FlowFrame(top, bg=BG)
+        actions.pack(fill='x')
+        for title, command in [('校园卡', self.card_overview), ('查询历史', self.history), ('设置', self.settings)]:
+            actions.add(self.button(actions, title, command, secondary=True))
         self.updated = tk.StringVar()
         tk.Label(self.body, textvariable=self.updated, bg=BG, fg=MUTED).pack(anchor='w', pady=(8, 20))
         self.network_switch(self.body)
         cards = tk.Frame(self.body, bg=BG)
+        self.balance_cards = []
+        self.cards_frame = cards
         cards.pack(fill='x')
         cfg = self.store.read('account', {})['config']
         self.amounts = {}
         for index, item in enumerate(cfg['items']):
             cards.columnconfigure(index, weight=1, uniform='cards')
             card = tk.Frame(cards, bg='white', padx=20, pady=23)
+            self.balance_cards.append(card)
             card.grid(row=0, column=index, sticky='nsew', padx=(0 if index == 0 else 6, 6))
             tk.Label(card, text=NAMES[item], bg='white', fg=MUTED).pack(anchor='w')
             var = tk.StringVar(value='—')
@@ -363,6 +371,47 @@ class DesktopWindow:
         self.cancel_button = self.button(row, '取消登录', self.cancel_login, secondary=True, tracked=False)
         self.cancel_button.configure(state='disabled')
         self.render_state()
+
+    def schedule_reflow(self, event=None):
+        if self.reflow_pending is None and not self.closing:
+            self.reflow_pending = self.root.after_idle(self.reflow)
+
+    def reflow(self, event=None):
+        """Keep the home page within the viewport; stack cards when necessary."""
+        self.reflow_pending = None
+        width = self.body.winfo_width()
+        scale = float(self.root.tk.call('tk', 'scaling'))
+        brand_size = min(23, max(12, int((self.root.winfo_width() - 70) / (8 * scale))))
+        self.brand_label.configure(font=('Microsoft YaHei UI', brand_size, 'bold'))
+        if width < 10:
+            return
+        cards = getattr(self, 'balance_cards', [])
+        if cards:
+            minimum = int(240 * float(self.root.tk.call('tk', 'scaling')) / (96 / 72))
+            columns = max(1, min(len(cards), width // minimum))
+            for index in range(len(cards)):
+                self.cards_frame.columnconfigure(index, weight=1 if index < columns else 0,
+                                                 uniform='cards' if index < columns else '')
+            for index, card in enumerate(cards):
+                card.grid(row=index // columns, column=index % columns,
+                          padx=(0, 8 if index % columns < columns - 1 else 0), pady=(0, 8))
+        def wrap(parent):
+            for widget in parent.winfo_children():
+                if isinstance(widget, tk.Label):
+                    if parent.winfo_width() < 10:
+                        continue
+                    available = max(100, min(width - 16, parent.winfo_width() - 48))
+                    if int(widget.cget('wraplength')) != available:
+                        widget.configure(wraplength=available, justify='left')
+                else:
+                    wrap(widget)
+        wrap(self.body)
+        for area in (self.outer.grid_slaves(row=0)[0], self.outer.grid_slaves(row=3)[0]):
+            for widget in area.winfo_children():
+                if isinstance(widget, tk.Label):
+                    widget.configure(wraplength=max(100, self.outer.winfo_width() - 60), justify='left')
+        for widget in self.outer.grid_slaves(row=2):
+            widget.configure(wraplength=max(100, self.outer.winfo_width() - 60))
 
     def render_state(self):
         if self.page != 'dashboard':
@@ -721,9 +770,9 @@ class DesktopWindow:
         row = tk.Frame(parent, bg='white', padx=12, pady=8)
         row.pack(fill='x', pady=(0, 14))
         self.checkbox(row, '校园网自动登录', self.network_enabled,
-                      self.toggle_network).pack(side='left')
+                      self.toggle_network).pack(anchor='w')
         tk.Label(row, textvariable=self.network_status, bg='white', fg=MUTED,
-                 wraplength=440, justify='left').pack(side='left', padx=16)
+                 wraplength=440, justify='left').pack(anchor='w', padx=5, pady=(4, 0))
 
     def toggle_network(self):
         cfg = self.network.snapshot()

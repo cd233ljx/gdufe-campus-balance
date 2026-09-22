@@ -58,8 +58,11 @@ def run(report):
             target.attributes('-topmost', True)
             target.update()
             time.sleep(.3)
-            box = (target.winfo_rootx(), target.winfo_rooty(), target.winfo_rootx() + target.winfo_width(), target.winfo_rooty() + target.winfo_height())
-            ImageGrab.grab(bbox=box).save(report.with_name(name + '.png'))
+            from ctypes import wintypes
+            ancestor = ctypes.windll.user32.GetAncestor
+            ancestor.argtypes = [wintypes.HWND, wintypes.UINT]
+            ancestor.restype = wintypes.HWND
+            ImageGrab.grab(window=ancestor(target.winfo_id(), 2)).save(report.with_name(name + '.png'))
             target.attributes('-topmost', False)
 
         def step_one():
