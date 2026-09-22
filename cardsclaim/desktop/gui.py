@@ -325,6 +325,7 @@ class DesktopWindow:
                  bg=BG, fg=MUTED).pack(anchor='w', pady=(6, 0))
         self.network_switch(self.body)
         self.button(self.body, '校园网设置', self.network_settings, secondary=True).pack(anchor='w', pady=8)
+        self.button(self.body, '检查更新', self.check_update, secondary=True).pack(anchor='w', pady=4)
 
     def dashboard(self):
         self.clear()
@@ -536,6 +537,9 @@ class DesktopWindow:
                         callback(result)
                 elif event == 'progress':
                     self.status.set(payload)
+                elif event == 'update_progress':
+                    variable, text = payload
+                    variable.set(text)
                 elif event == 'auth_required':
                     self.needs_relogin = True
                     self.setup()
@@ -665,6 +669,7 @@ class DesktopWindow:
         panel = tk.Frame(scroll.content, bg='white', padx=28, pady=24)
         panel.pack(fill='both', expand=True)
         tk.Label(panel, text='提醒设置', bg='white', fg=INK, font=('Microsoft YaHei UI', 17, 'bold')).grid(row=0, column=0, columnspan=2, sticky='w', pady=(0, 20))
+        self.button(panel, '检查更新', self.check_update, secondary=True, tracked=False).grid(row=0, column=1, sticky='e', pady=(0, 20))
         tk.Label(panel, text='查询频率：常驻期间每 30 分钟一次', bg='white', fg=ACCENT).grid(row=1, column=0, columnspan=2, sticky='w')
         mail = self.store.read('email', {})
         mail_card = tk.Frame(panel, bg='#E9F5F1', padx=18, pady=16,
@@ -730,6 +735,81 @@ class DesktopWindow:
         self.button(panel, '更换房间 / 项目', choose, secondary=True, tracked=False).grid(row=n+1, column=0, sticky='w')
         window.update_idletasks()
         fit_window(window, panel.winfo_reqwidth() + 20, panel.winfo_reqheight() + 20)
+
+    def check_update(self):
+        if self.busy:
+            return
+        from . import updater
+        version = updater.current_version()
+        def show(release):
+            if release is None:
+                messagebox.showinfo('检查更新', f'当前 v{version} 已是最新正式版。', parent=self.root)
+                return
+            window = tk.Toplevel(self.root)
+            window.title('软件更新')
+            window.configure(bg=BG)
+            window.transient(self.root)
+            window.grab_set()
+            panel = tk.Frame(window, bg=BG, padx=24, pady=20)
+            panel.pack(fill='both', expand=True)
+            tk.Label(panel, text=f"发现新版 v{release['version']}", bg=BG, fg=INK,
+                     font=('Microsoft YaHei UI', 17, 'bold')).pack(anchor='w')
+            tk.Label(panel, text=f'当前版本 v{version} · 安装完成后自动重新打开', bg=BG, fg=MUTED).pack(anchor='w', pady=8)
+            notes = tk.Text(panel, height=10, wrap='word', relief='flat', padx=12, pady=12)
+            notes.insert('1.0', release['notes'])
+            notes.configure(state='disabled')
+            notes.pack(fill='both', expand=True)
+            progress = tk.StringVar(value='下载并校验完成后退出程序安装，保留账号、设置和历史。')
+            label = tk.Label(panel, textvariable=progress, bg=BG, fg=MUTED, justify='left')
+            label.pack(fill='x', pady=12)
+            panel.bind('<Configure>', lambda event: label.configure(wraplength=max(100, event.width - 48)))
+            actions = FlowFrame(panel, bg=BG)
+            actions.pack(fill='x')
+            cancelled = threading.Event()
+            def cancel():
+                cancelled.set()
+                window.destroy()
+            def ready(result):
+                prepared, error = result
+                if cancelled.is_set():
+                    return
+                if error:
+                    progress.set(error)
+                    install_button.configure(state='normal')
+                    return
+                window.destroy()
+                def install():
+                    stop(self.store)
+                    try:
+                        updater.launch(prepared)
+                    except OSError as error:
+                        from .app import background
+                        if self.controller.ready():
+                            background(self.store)
+                        raise ValueError('无法启动安装助手，当前版本继续运行，请重试。') from error
+                self.job(install, lambda _: self.destroy(), '正在退出并安装更新…')
+            def begin():
+                install_button.configure(state='disabled')
+                progress.set('正在下载新版…')
+                def prepare():
+                    try:
+                        prepared = updater.prepare(release, cancelled, lambda done, total:
+                            self.events.put(('update_progress', (progress, f'正在下载：{done / total:.0%}'))))
+                        return prepared, None
+                    except ValueError as error:
+                        return None, str(error)
+                    except Exception:
+                        return None, '更新准备失败，当前版本未修改。请检查磁盘空间后重试。'
+                self.job(prepare, ready, '正在下载更新，完成后安装…')
+            install_button = self.button(actions, '下载并安装', begin, tracked=False)
+            actions.add(install_button)
+            actions.add(self.button(actions, '取消', cancel, secondary=True, tracked=False))
+            if not getattr(sys, 'frozen', False) or not installation():
+                install_button.configure(state='disabled')
+                progress.set('源码或旧便携版请先安装正式安装版，再使用软件内更新。')
+            window.protocol('WM_DELETE_WINDOW', cancel)
+            fit_window(window, 650, 560)
+        self.job(lambda: updater.check_update(version), show, '正在检查 GitHub 最新正式版…')
 
     def card_overview(self):
         if self.busy:

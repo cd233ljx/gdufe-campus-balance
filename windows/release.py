@@ -6,7 +6,6 @@ import json
 from pathlib import Path
 import subprocess
 import tomllib
-import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -38,20 +37,15 @@ def main():
             or installer_info.get('dirty') or installer_info.get('test_product')
             or installer_info.get('sha256') != hashlib.sha256(installer.read_bytes()).hexdigest()):
         raise SystemExit('Installer does not match the clean current commit; rebuild first.')
-    binary = destination / f'gdufe-campus-balance-v{version}-windows-x64.zip'
     source = destination / f'gdufe-campus-balance-v{version}-source.zip'
-    with zipfile.ZipFile(binary, 'w', zipfile.ZIP_DEFLATED) as archive:
-        for path in sorted(app.rglob('*')):
-            if path.is_file() and path.relative_to(app).parts[0] != 'data':
-                archive.write(path, Path('gdufe-campus-balance') / path.relative_to(app))
     # Git's archive contains precisely the committed source, with no caches,
     # accounts, logs, screenshots, old ZIPs, or untracked local captures.
     subprocess.run(['git', '-C', str(ROOT), 'archive', '--format=zip',
                     f'--prefix=gdufe-campus-balance-v{version}/', '-o', str(source), commit], check=True)
     checksums = destination / 'SHA256SUMS.txt'
     checksums.write_text(''.join(f'{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.name}\n'
-                                for path in (installer, binary, source)), encoding='utf-8')
-    for path in (installer, binary, source, checksums):
+                                for path in (installer, source)), encoding='utf-8')
+    for path in (installer, source, checksums):
         print(path)
 
 

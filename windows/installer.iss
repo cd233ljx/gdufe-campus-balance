@@ -41,7 +41,7 @@ OutputDir={#OutputPath}
 OutputBaseFilename=gdufe-campus-balance-v{#AppVersion}-windows-x64-setup
 Compression=lzma2
 SolidCompression=yes
-AppMutex=Local\GDUFE.CampusBalance.Running
+AppMutex=Local\{#ProductId}.Running
 SetupMutex=Local\{#ProductId}.Setup
 CloseApplications=no
 RestartApplications=no
@@ -60,6 +60,7 @@ Source: "{#AppSource}\..\installation.ini"; DestDir: "{app}"; Flags: ignoreversi
 
 [INI]
 Filename: "{app}\installation.ini"; Section: "install"; Key: "DataDir"; String: "{localappdata}\{#ProductName}\data"
+Filename: "{app}\installation.ini"; Section: "install"; Key: "MutexName"; String: "Local\{#ProductId}.Running"
 
 [Icons]
 Name: "{autoprograms}\{#ProductName}"; Filename: "{app}\gdufe-campus-balance.exe"; WorkingDir: "{app}"

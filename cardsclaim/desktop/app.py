@@ -256,6 +256,7 @@ def main():
     parser.add_argument('--console', action='store_true', help='使用旧版终端菜单')
     parser.add_argument('--rooms', action='store_true', help='打开软件内房间选择')
     parser.add_argument('--gui-self-test', metavar='REPORT', help=argparse.SUPPRESS)
+    parser.add_argument('--apply-update', help=argparse.SUPPRESS)
     parser.add_argument('--notify')
     parser.add_argument('--self-test', action='store_true', help='离线检查加密、后台进程和浏览器驱动，不访问学校')
     args = parser.parse_args()
@@ -268,6 +269,13 @@ def main():
     if args.gui_self_test:
         from .gui_smoke import run
         run(args.gui_self_test)
+        return
+    if args.apply_update:
+        from .updater import apply_plan
+        try:
+            apply_plan(args.apply_update)
+        except Exception:
+            raise SystemExit(1)
         return
     from .lifecycle import hold_install_mutex
     hold_install_mutex()

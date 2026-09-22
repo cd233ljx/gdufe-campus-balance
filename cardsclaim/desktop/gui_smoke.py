@@ -253,6 +253,19 @@ def run(report):
             screenshot('gui-campus-card', card_window)
             card_window.destroy()
             results.append('campus card overview opens and displays synthetic balances, flags and expiry')
+            from . import updater
+            with patch.object(app, 'job', side_effect=lambda work, done, text: done(work())), \
+                    patch.object(updater, 'check_update', return_value={'version': '0.6.0', 'notes': '示例更新说明：改进工具箱体验。'}), \
+                    patch.object(updater, 'current_version', return_value='0.5.0'), \
+                    patch('cardsclaim.desktop.gui.installation', return_value={'datadir': directory}), \
+                    patch('sys.frozen', True, create=True):
+                app.check_update()
+            update_window = [w for w in root.winfo_children() if isinstance(w, tk.Toplevel)][0]
+            screenshot('gui-software-update', update_window)
+            update_buttons = [w for w in descendants(update_window) if isinstance(w, tk.Button)]
+            assert next(w for w in update_buttons if w.cget('text') == '下载并安装').cget('state') == 'normal'
+            next(w for w in update_buttons if w.cget('text') == '取消').invoke()
+            results.append('update dialog shows release notes and cancellable install action without downloading')
             results.append('dashboard, settings and restore work on Tk main thread')
             app.history()
             root.update()

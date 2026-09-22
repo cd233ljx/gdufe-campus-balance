@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import shutil
 import sys
 import time
 import winreg
@@ -106,6 +107,42 @@ def main():
         subprocess.run(['taskkill', '/PID', str(process.pid), '/T', '/F'], check=True, capture_output=True)
         process.wait(timeout=20)
 
+    preserved = {p.name: p.read_bytes() for p in data.iterdir() if p.is_file()}
+    # Exercise the bundled update helper, real installer, and automatic restart.
+    update = base / ('update-' + str(time.time_ns()))
+    update.mkdir()
+    helper = update / 'helper'
+    helper.mkdir()
+    shutil.copy2(exe, helper / exe.name)
+    shutil.copytree(app / '_internal', helper / '_internal')
+    artifact = update / package.name
+    shutil.copy2(package, artifact)
+    parent = subprocess.Popen([sys.executable, '-c', 'import time; time.sleep(3)'], creationflags=subprocess.CREATE_NO_WINDOW)
+    plan = update / 'plan.json'
+    plan.write_text(json.dumps({'target': str(app), 'artifact': str(artifact), 'parent': parent.pid,
+                               'sha256': receipt['sha256']}), encoding='utf-8')
+    runner = subprocess.Popen([str(helper / exe.name), '--apply-update', str(plan)], creationflags=subprocess.CREATE_NO_WINDOW)
+    parent.wait(timeout=15)
+    assert runner.wait(timeout=120) == 0
+    result = json.loads((update / 'result.json').read_text('utf-8'))
+    assert result['ok']
+    try:
+        deadline = time.monotonic() + 20
+        while time.monotonic() < deadline:
+            try:
+                with installed.lock('window.lock'):
+                    pass
+            except ValueError:
+                break
+            time.sleep(.2)
+        else:
+            raise AssertionError('Updated application did not restart')
+        assert installed.read('email')['code'] == 'synthetic-code'
+        assert installed.read('preferences')['synthetic_test']
+        assert (data / 'history-2026-09-22').read_bytes() == preserved['history-2026-09-22']
+        reports.append('in-app update helper: waits for exit, verifies package, installs, restarts, preserves data')
+    finally:
+        subprocess.run(['taskkill', '/PID', str(result['pid']), '/T', '/F'], check=True, capture_output=True)
     preserved = {p.name: p.read_bytes() for p in data.iterdir() if p.is_file()}
     install('/TASKS=')
     assert not desktop.exists() and menu.exists() and reg_value(RUN, NAME) is None
