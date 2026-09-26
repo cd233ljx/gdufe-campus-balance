@@ -93,6 +93,24 @@ class EmailHistoryTests(unittest.TestCase):
         self.assertEqual(row['change'], '-1')
         self.assertTrue(row['previous_time'].startswith('2026-09-20'))
 
+    def test_history_retains_latest_365_days_without_stale_comparison(self):
+        old = '2025-09-26'
+        edge = '2025-09-27'
+        self.store.write('history-' + old, [{'id': 'old'}])
+        self.store.write('history-' + edge, [{'id': 'edge'}])
+        self.store.write('history-invalid-day', [{'id': 'unrelated'}])
+        with patch('cardsclaim.desktop.history.datetime') as clock:
+            clock.now.return_value = datetime(2026, 9, 26, 12, 0, tzinfo=TZ)
+            record(self.store, self.cfg, balances('20', '4'))
+        self.assertFalse((self.store.root / ('history-' + old)).exists())
+        self.assertTrue((self.store.root / ('history-' + edge)).exists())
+        self.assertTrue((self.store.root / 'history-invalid-day').exists())
+
+        with patch('cardsclaim.desktop.history.datetime') as clock:
+            clock.now.return_value = datetime(2027, 9, 27, 12, 0, tzinfo=TZ)
+            record(self.store, self.cfg, balances('19', '4'))
+        self.assertNotIn('change', recent(self.store)[0]['rows'][0])
+
     def test_failed_bind_keeps_previous_then_success_and_disable(self):
         controller = Controller(self.store)
         with patch('cardsclaim.desktop.email_alerts.send', side_effect=ValueError('测试失败')):

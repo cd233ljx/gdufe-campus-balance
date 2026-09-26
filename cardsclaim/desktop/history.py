@@ -1,17 +1,36 @@
 """Encrypted daily query records, independent of account/room changes."""
 import copy
 import json
-from datetime import datetime
+from datetime import date, datetime, timedelta
 
 from .model import TZ
 from ..common import number
 
 
+RETENTION_DAYS = 365
+
+
+def prune(store, today):
+    """Keep 365 days of dated history, including today."""
+    cutoff = today - timedelta(days=RETENTION_DAYS - 1)
+    for path in store.root.glob('history-????-??-??'):
+        try:
+            day = date.fromisoformat(path.name[8:])
+        except ValueError:
+            continue
+        if day < cutoff and path.is_file():
+            path.unlink()
+    return cutoff
+
+
 def record(store, cfg, balances, status='ok', source='manual', failed_item=None):
-    stamp = datetime.now(TZ).isoformat()
+    now = datetime.now(TZ)
+    stamp = now.isoformat()
+    cutoff = prune(store, now.date()).isoformat()
     name = 'history-' + stamp[:10]
     records = store.read(name, [])
-    previous = store.read('history-last', {})
+    previous = {key: value for key, value in store.read('history-last', {}).items()
+                if value.get('time', '')[:10] >= cutoff}
     rows = []
     for item in cfg['items']:
         identity = json.dumps([item, cfg['params'].get(item), cfg.get('liwang_basis')], sort_keys=True)
