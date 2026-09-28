@@ -1,0 +1,17 @@
+[Unit]
+Description=GDUFE Campus Toolbox usage metrics
+After=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/srv/stacks/campus-metrics
+Environment=METRICS_DB=/srv/data/campus-metrics/metrics.sqlite3
+ExecStart=/usr/bin/python3 /srv/stacks/campus-metrics/metrics_service.py serve --host 127.0.0.1 --port 18110
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

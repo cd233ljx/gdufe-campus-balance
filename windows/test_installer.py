@@ -72,7 +72,11 @@ def main():
         while uninstaller.exists() and time.monotonic() < deadline:
             time.sleep(.2)
 
-    install()
+    saved_tasks = base / 'default-tasks.inf'
+    install(f'/SAVEINF={saved_tasks}')
+    saved = configparser.ConfigParser()
+    saved.read(saved_tasks, encoding='latin-1')
+    assert 'telemetry' in saved['Setup']['Tasks'].split(','), 'Interactive task must default to checked'
     exe = app / 'gdufe-campus-balance.exe'
     assert exe.exists() and desktop.exists() and menu.exists()
     assert reg_value(KEY, 'DisplayVersion') == version
@@ -80,7 +84,8 @@ def main():
     parser = configparser.ConfigParser()
     parser.read(app / 'installation.ini', encoding='utf-16')
     assert Path(parser['install']['DataDir']) == data
-    reports.append('fresh install: Chinese path, both default tasks, HKCU uninstall, marker')
+    assert parser['install']['TelemetryOptIn'] == 'no'
+    reports.append('fresh silent install: Chinese path, both default tasks, telemetry off, HKCU uninstall, marker')
 
     # Launch the actual installed program once: AppData storage must work
     # without an inherited Python path, and without displaying the setup guide.
@@ -159,10 +164,12 @@ def main():
         assert (data / name).read_bytes() == value
     reports.append('uninstall: program/shortcuts/registry removed, data retained by default')
 
-    install()
+    install('/TASKS=telemetry')
+    parser.read(app / 'installation.ini', encoding='utf-16')
+    assert parser['install']['TelemetryOptIn'] == 'no', 'Silent installation must not activate telemetry'
     for name, value in preserved.items():
         assert (data / name).read_bytes() == value
-    reports.append('reinstall: retained data survives')
+    reports.append('reinstall: silent telemetry remains off, retained data survives')
     # This switch exists only in the isolated QA build; production silent
     # uninstall always preserves data. Exercise the real deletion callback.
     assert data == known_folder(0x1c) / NAME / 'data' and NAME.endswith('InstallerTest')

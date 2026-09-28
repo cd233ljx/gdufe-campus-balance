@@ -95,6 +95,9 @@ def run(report):
                 app.ask_startup()
                 assert startup.enabled()
             results.append('first-launch startup opt-in/out persists and is asked only once; registry mocked')
+            assert app.metrics.status() == {'prompted': False, 'enabled': False}
+            assert not store.read('telemetry')
+            results.append('usage statistics remain off without explicit install or settings choice')
             assert app.page == 'setup' 
             assert app.tray_ready, 'tray did not start'
             assert not store.read('account')
@@ -230,7 +233,18 @@ def run(report):
             assert startup.enabled()
             screenshot('gui-startup-settings', settings[0])
             results.append('settings startup toggle applies immediately without changing reminders')
-            settings[0].destroy()
+            next(w for w in descendants(settings[0]) if isinstance(w, tk.Button)
+                 and w.cget('text') == '使用统计与隐私').invoke()
+            privacy_window = next(w for w in root.winfo_children() if isinstance(w, tk.Toplevel))
+            assert any(isinstance(w, tk.Button) and w.cget('text') == '查看完整隐私说明'
+                       for w in descendants(privacy_window))
+            privacy_window.update_idletasks()
+            choice = next(w for w in descendants(privacy_window) if isinstance(w, tk.Button)
+                          and w.cget('text') == '自愿参与使用统计')
+            assert choice.winfo_rooty() + choice.winfo_height() <= privacy_window.winfo_rooty() + privacy_window.winfo_height()
+            screenshot('gui-usage-privacy', privacy_window)
+            privacy_window.destroy()
+            results.append('usage privacy settings and local full notice are reachable')
             app.network.configure({'student_id': 'synthetic-test', 'password': 'synthetic-only',
                                    'auto_login': False, 'check_interval': 30})
             app.network_enabled.set(True)

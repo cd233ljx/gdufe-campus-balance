@@ -32,6 +32,8 @@ def build(skip_freeze=False, iscc=None, test_product=False):
         subprocess.run([sys.executable, str(ROOT / 'windows/freeze.py'), '--distpath', str(stage)], check=True, cwd=ROOT)
         for name in ('README.md', 'LICENSE'):
             shutil.copyfile(ROOT / name, app / name)
+        (app / 'docs').mkdir(exist_ok=True)
+        shutil.copyfile(ROOT / 'docs/PRIVACY.txt', app / 'docs/PRIVACY.txt')
         subprocess.run([sys.executable, str(ROOT / 'windows/licenses.py'), str(app)], check=True, cwd=ROOT)
     for name in ('gdufe-campus-balance.exe', 'build-info.json', 'THIRD-PARTY-LICENSES/INDEX.txt'):
         if not (app / name).is_file():

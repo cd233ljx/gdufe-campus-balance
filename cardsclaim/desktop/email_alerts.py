@@ -74,6 +74,9 @@ async def deliver(store):
     except ValueError as error:
         mail['error'] = str(error)
     else:
+        from .telemetry import Telemetry
+        for item in pending:
+            Telemetry(store).record('alert_delivered_email', item)
         mail['pending'] = {}
         mail.pop('error', None)
         mail['last_sent'] = datetime.now(TZ).isoformat()

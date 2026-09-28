@@ -11,6 +11,7 @@ from .model import accept, validate, TZ, query_all
 from ..api import Campus, QueryError
 from .history import record
 from . import email_alerts
+from .telemetry import Telemetry
 
 
 def default_config():
@@ -142,6 +143,9 @@ class Controller:
                 accept(cfg, state, balances)
                 state['last_attempt'] = state['last_success']
                 record(self.store, cfg, balances, source='login')
+                Telemetry(self.store).record('setup_complete')
+                for item in cfg['items']:
+                    Telemetry(self.store).record('feature_selected', item)
                 if old.get('params') != cfg.get('params') or old.get('items') != cfg.get('items'):
                     self.store.write('email-state', {})
                 email_alerts.queue_alerts(self.store, cfg, state)

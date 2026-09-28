@@ -19,6 +19,7 @@ from .model import TZ, accept, due, fail, query_all, validate
 from .store import DesktopStore
 from .history import record
 from . import email_alerts
+from .telemetry import Telemetry
 
 ERRORS = {'auth': '登录已失效，请选择浏览器登录 / 续期', 'network': '网络连接失败，下一轮查询会重试',
           'business': '学校接口未接受查询，请重新选择房间', 'parse': '余额格式无法识别，请勿把它当成零'}
@@ -105,6 +106,9 @@ async def login(store, discover=False):
     accept(cfg, state, balances)
     store.write('state', state)
     record(store, cfg, balances, source='login')
+    Telemetry(store).record('setup_complete')
+    for item in cfg['items']:
+        Telemetry(store).record('feature_selected', item)
     email_alerts.queue_alerts(store, cfg, state)
     say('登录及所有所选项目的实际查询已通过，凭证已加密保存。')
     show_balances(state)
@@ -117,6 +121,8 @@ async def check(store, cfg, token, state, source='manual'):
             balances = await query_all(Campus(http, cfg), cfg, token)
             accept(cfg, state, balances)
             record(store, cfg, balances, source=source)
+            if source in ('manual', 'automatic'):
+                Telemetry(store).record('query_success_' + source)
         except QueryError as error:
             fail(state, error)
             record(store, cfg, getattr(error, 'balances', {}), error.kind, source, getattr(error, 'item', None))
@@ -157,6 +163,8 @@ async def deliver(store, state):
             if process.returncode == 0 and state.get('pending', {}).get(key) == text:
                 del state['pending'][key]
                 store.write('state', state)
+                if key in ITEMS:
+                    Telemetry(store).record('alert_delivered_popup', key)
         except OSError:
             return  # keep event; retry after a bounded delay
 
@@ -180,6 +188,7 @@ async def monitor(store, background=False, instance=None):
     delivery = None
     retry_at = 0
     mail_retry_at = 0
+    metrics_retry_at = 0
     try:
         say('监控已启动，每 30 分钟查询。按 B 切换后台，按 Q 返回菜单。')
         while True:
@@ -205,6 +214,9 @@ async def monitor(store, background=False, instance=None):
             if time.monotonic() >= mail_retry_at:
                 await email_alerts.deliver(store)
                 mail_retry_at = time.monotonic() + 60
+            if time.monotonic() >= metrics_retry_at:
+                await asyncio.to_thread(Telemetry(store).flush)
+                metrics_retry_at = time.monotonic() + 300
             await asyncio.sleep(1)
     finally:
         if delivery:

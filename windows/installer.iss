@@ -37,6 +37,7 @@ WizardStyle=modern
 SetupIconFile=..\build\cardsclaim.ico
 UninstallDisplayIcon={app}\gdufe-campus-balance.exe
 LicenseFile=..\LICENSE
+InfoBeforeFile=..\docs\PRIVACY.txt
 OutputDir={#OutputPath}
 OutputBaseFilename=gdufe-campus-balance-v{#AppVersion}-windows-x64-setup
 Compression=lzma2
@@ -53,6 +54,7 @@ Name: "chinesesimp"; MessagesFile: "ChineseSimplified.isl"
 [Tasks]
 Name: "desktopicon"; Description: "创建桌面快捷方式"; GroupDescription: "安装选项："
 Name: "startup"; Description: "开机自启（登录当前 Windows 用户后，在托盘中运行）"; GroupDescription: "安装选项："
+Name: "telemetry"; Description: "参与使用统计（随机编号和功能事件；可在设置中关闭并删除记录）"; GroupDescription: "安装选项："
 
 [Files]
 Source: "{#AppSource}\*"; DestDir: "{app}"; Excludes: "data,installation.ini"; Flags: ignoreversion recursesubdirs createallsubdirs
@@ -61,6 +63,8 @@ Source: "{#AppSource}\..\installation.ini"; DestDir: "{app}"; Flags: ignoreversi
 [INI]
 Filename: "{app}\installation.ini"; Section: "install"; Key: "DataDir"; String: "{localappdata}\{#ProductName}\data"
 Filename: "{app}\installation.ini"; Section: "install"; Key: "MutexName"; String: "Local\{#ProductId}.Running"
+Filename: "{app}\installation.ini"; Section: "install"; Key: "TelemetryOptIn"; String: "no"
+Filename: "{app}\installation.ini"; Section: "install"; Key: "TelemetryOptIn"; String: "yes"; Tasks: telemetry; Check: InteractiveTelemetry
 
 [Icons]
 Name: "{autoprograms}\{#ProductName}"; Filename: "{app}\gdufe-campus-balance.exe"; WorkingDir: "{app}"
@@ -76,6 +80,11 @@ Filename: "{app}\gdufe-campus-balance.exe"; Description: "立即启动广财校�
 [Code]
 var
   DeleteData: Boolean;
+
+function InteractiveTelemetry: Boolean;
+begin
+  Result := not WizardSilent;
+end;
 
 procedure InitializeWizard;
 var

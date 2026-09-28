@@ -28,6 +28,7 @@ from .startup import StartupRegistration
 from ..api import QueryError
 from .network import NetworkMonitor
 from .model import due
+from .telemetry import Telemetry
 
 BG = '#F3F5F7'
 INK = '#142A38'
@@ -62,6 +63,7 @@ class DesktopWindow:
     def __init__(self, root, store, *, autostart=True, tray=True, startup=None, start_hidden=False):
         self.root, self.store = root, store
         self.controller = Controller(store)
+        self.metrics = Telemetry(store)
         self.startup = startup if startup is not None else StartupRegistration()
         self.events = queue.Queue()
         self.network = NetworkMonitor(store.root, lambda data: self.events.put(('network', data)))
@@ -77,6 +79,7 @@ class DesktopWindow:
         self.start_hidden = start_hidden
         self.last_show = store.read('show-window', {}).get('at')
         self.next_status = 0
+        self.next_metrics_flush = time.monotonic() + 10
         self.success_until = 0
         self.needs_relogin = False
         self.guide_window = None
@@ -150,6 +153,8 @@ class DesktopWindow:
                     and not store.read('login-draft', {}).get('token')):
                 root.after(100, self.show_guide)
             root.after(500, self.ask_startup)
+        if not start_hidden:
+            self.metrics.record('active_open')
 
     def show_guide(self):
         if self.busy:
@@ -551,6 +556,7 @@ class DesktopWindow:
                     self.tray_ready = False
                     self.show()
                 elif event == 'show':
+                    self.metrics.record('active_open')
                     self.show()
                 elif event == 'refresh' and not self.busy and self.controller.ready():
                     self.refresh()
@@ -576,8 +582,12 @@ class DesktopWindow:
             signal = self.store.read('show-window', {}).get('at')
             if signal != self.last_show:
                 self.last_show = signal
+                self.metrics.record('active_open')
                 self.show()
             self.render_state()
+        if time.monotonic() >= self.next_metrics_flush:
+            self.next_metrics_flush = time.monotonic() + 300
+            self.metrics.flush_async()
         self.root.after(100, self.pump)
 
     def refresh(self):
@@ -699,6 +709,12 @@ class DesktopWindow:
         self.button(panel, '校园网自动登录设置', network_settings,
                     tracked=False).grid(row=n, column=0, columnspan=2, sticky='ew', pady=12)
         n += 1
+        def metrics_settings():
+            window.destroy()
+            self.metrics_settings()
+        self.button(panel, '使用统计与隐私', metrics_settings, secondary=True,
+                    tracked=False).grid(row=n, column=0, columnspan=2, sticky='ew', pady=8)
+        n += 1
         try:
             initial_startup = self.startup.enabled()
         except (OSError, ValueError):
@@ -735,6 +751,52 @@ class DesktopWindow:
         self.button(panel, '更换房间 / 项目', choose, secondary=True, tracked=False).grid(row=n+1, column=0, sticky='w')
         window.update_idletasks()
         fit_window(window, panel.winfo_reqwidth() + 20, panel.winfo_reqheight() + 20)
+
+    def metrics_settings(self):
+        window = tk.Toplevel(self.root)
+        window.title('使用统计与隐私')
+        window.configure(bg='white')
+        window.transient(self.root)
+        window.grab_set()
+        scroll = ScrollPane(window, horizontal=False)
+        scroll.pack(fill='both', expand=True)
+        panel = tk.Frame(scroll.content, bg='white', padx=28, pady=24)
+        panel.pack(fill='both', expand=True)
+        tk.Label(panel, text='使用统计与隐私', bg='white', fg=INK,
+                 font=('Microsoft YaHei UI', 16, 'bold')).pack(anchor='w')
+        tk.Label(panel, text=('仅上报随机统计编号、版本、日期和固定功能事件。\n'
+                 '不上传余额、房间、手机号、邮箱或登录凭证。\n'
+                 '经 Cloudflare Tunnel 传送到维护者服务器，原始事件保留最近 365 天。\n'
+                 '统计失败不会影响软件使用。关闭后会申请删除此前上报的记录；离线时稍后重试。'),
+                 bg='white', fg=MUTED, justify='left', wraplength=450).pack(anchor='w', pady=(16, 12))
+        def open_privacy():
+            base = Path(sys.executable).resolve().parent if getattr(sys, 'frozen', False) else Path(__file__).resolve().parents[2]
+            path = base / 'docs' / 'PRIVACY.txt'
+            if path.is_file():
+                os.startfile(path)
+            else:
+                messagebox.showerror('隐私说明', '未找到隐私说明文件，请检查安装是否完整。', parent=window)
+        self.button(panel, '查看完整隐私说明', open_privacy, secondary=True,
+                    tracked=False).pack(fill='x', pady=(0, 12))
+        status = tk.StringVar()
+        tk.Label(panel, textvariable=status, bg='white', fg=INK).pack(anchor='w', pady=(0, 12))
+        def render():
+            status.set('当前：参与使用统计' if self.metrics.status()['enabled'] else '当前：未参与使用统计')
+            toggle.configure(text='停止参与并删除已上报记录' if self.metrics.status()['enabled'] else '自愿参与使用统计')
+        def toggle_choice():
+            enable = not self.metrics.status()['enabled']
+            if not self.metrics.choose(enable):
+                messagebox.showerror('使用统计', '设置未能保存，请稍后重试。', parent=window)
+            elif enable:
+                self.metrics.record('active_open')
+            render()
+        toggle = self.button(panel, '', toggle_choice, tracked=False)
+        toggle.pack(fill='x')
+        self.button(panel, '返回设置', lambda: (window.destroy(), self.settings()),
+                    secondary=True, tracked=False).pack(fill='x', pady=(8, 0))
+        render()
+        window.update_idletasks()
+        fit_window(window, max(530, panel.winfo_reqwidth() + 20), panel.winfo_reqheight() + 20)
 
     def check_update(self):
         if self.busy:
