@@ -36,7 +36,7 @@ class Telemetry:
         self.store = store
         self.sender = sender
         self.auto_flush = auto_flush
-        # The installer's unchecked-by-default task is an explicit opt-in.
+        # The installer's interactive usage-statistics task may be deselected.
         # An existing in-app choice always wins over a later installer run.
         if not os.environ.get('CARDSCLAIM_DATA_DIR'):
             try:

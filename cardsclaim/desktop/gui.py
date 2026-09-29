@@ -29,6 +29,7 @@ from ..api import QueryError
 from .network import NetworkMonitor
 from .model import due
 from .telemetry import Telemetry
+from .install_counts import InstallationCounter
 
 BG = '#F3F5F7'
 INK = '#142A38'
@@ -64,6 +65,7 @@ class DesktopWindow:
         self.root, self.store = root, store
         self.controller = Controller(store)
         self.metrics = Telemetry(store)
+        self.install_counts = InstallationCounter(store)
         self.startup = startup if startup is not None else StartupRegistration()
         self.events = queue.Queue()
         self.network = NetworkMonitor(store.root, lambda data: self.events.put(('network', data)))
@@ -588,6 +590,7 @@ class DesktopWindow:
         if time.monotonic() >= self.next_metrics_flush:
             self.next_metrics_flush = time.monotonic() + 300
             self.metrics.flush_async()
+            self.install_counts.flush_async()
         self.root.after(100, self.pump)
 
     def refresh(self):

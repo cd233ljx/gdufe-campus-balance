@@ -24,6 +24,7 @@ HEX_ID = re.compile(r'[0-9a-f]{32}\Z')
 VERSION = re.compile(r'\d+\.\d+\.\d+\Z')
 DAY = re.compile(r'\d{4}-\d{2}-\d{2}\Z')
 EVENT_FIELDS = frozenset({'event_id', 'device_id', 'day', 'version', 'kind', 'feature'})
+INSTALL_FIELDS = frozenset({'event_id', 'day', 'version'})
 MAX_BODY = 32768
 RATE_LOCK = threading.Lock()
 RATE_BUCKETS = {}
@@ -40,6 +41,9 @@ def connect(path):
     db.execute('CREATE INDEX IF NOT EXISTS events_device ON events(device_id)')
     db.execute('CREATE TABLE IF NOT EXISTS deleted_devices ('
                'device_id TEXT PRIMARY KEY, deleted_at TEXT NOT NULL)')
+    db.execute('CREATE TABLE IF NOT EXISTS installations ('
+               'event_id TEXT PRIMARY KEY, day TEXT NOT NULL, version TEXT NOT NULL)')
+    db.execute('CREATE INDEX IF NOT EXISTS installations_day ON installations(day)')
     return db
 
 
@@ -65,7 +69,28 @@ def valid_event(value, today=None):
 def purge_old(db):
     today = datetime.now(TZ).date()
     db.execute('DELETE FROM events WHERE day < ?', ((today - timedelta(days=364)).isoformat(),))
+    db.execute('DELETE FROM installations WHERE day < ?', ((today - timedelta(days=364)).isoformat(),))
     db.execute('DELETE FROM deleted_devices WHERE deleted_at < ?', ((today - timedelta(days=31)).isoformat(),))
+
+
+def insert_installation(path, value):
+    if not isinstance(value, dict) or set(value) != INSTALL_FIELDS:
+        raise ValueError('invalid installation')
+    if any(type(value[key]) is not str for key in INSTALL_FIELDS):
+        raise ValueError('invalid installation')
+    if not HEX_ID.fullmatch(value['event_id']) or not VERSION.fullmatch(value['version']):
+        raise ValueError('invalid installation')
+    try:
+        day = datetime.strptime(value['day'], '%Y-%m-%d').date()
+    except (ValueError, TypeError):
+        raise ValueError('invalid installation') from None
+    today = datetime.now(TZ).date()
+    if not today - timedelta(days=29) <= day <= today + timedelta(days=1):
+        raise ValueError('invalid installation')
+    with closing(connect(path)) as db, db:
+        purge_old(db)
+        db.execute('INSERT OR IGNORE INTO installations VALUES (?, ?, ?)',
+                   (value['event_id'], value['day'], value['version']))
 
 
 def insert_events(path, events):
@@ -105,7 +130,7 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(b'ok')
 
     def do_POST(self):
-        if self.path not in ('/v1/events', '/v1/delete'):
+        if self.path not in ('/v1/events', '/v1/delete', '/v1/install'):
             return self.send_error(404)
         # Cloudflare sets this header at the public edge. Keep only a short-lived
         # in-memory counter; IP addresses are never written to the database/log.
@@ -130,10 +155,12 @@ class Handler(BaseHTTPRequestHandler):
                 if not isinstance(data, dict) or set(data) != {'events'}:
                     raise ValueError('invalid request')
                 insert_events(self.db_path, data['events'])
-            else:
+            elif self.path == '/v1/delete':
                 if not isinstance(data, dict) or set(data) != {'device_id'}:
                     raise ValueError('invalid request')
                 delete_device(self.db_path, data['device_id'])
+            else:
+                insert_installation(self.db_path, data)
         except (ValueError, UnicodeError, json.JSONDecodeError):
             return self.send_error(400)
         self.send_response(204)
@@ -148,9 +175,11 @@ def export(path, output, start, end):
     with closing(connect(path)) as db:
         rows = db.execute('SELECT day, device_id, kind, feature FROM events WHERE day BETWEEN ? AND ? ORDER BY day',
                           (start, end)).fetchall()
+        installs = db.execute('SELECT day, COUNT(*) FROM installations WHERE day BETWEEN ? AND ? GROUP BY day',
+                              (start, end)).fetchall()
     daily = {}
     for day, device, kind, feature in rows:
-        entry = daily.setdefault(day, {'devices': set(), 'active': set(), 'monitoring': set(), 'queries': 0, 'alerts': 0})
+        entry = daily.setdefault(day, {'devices': set(), 'active': set(), 'monitoring': set(), 'queries': 0, 'alerts': 0, 'installs': 0})
         entry['devices'].add(device)
         if kind in ('active_open', 'query_success_manual'):
             entry['active'].add(device)
@@ -160,16 +189,21 @@ def export(path, output, start, end):
             entry['queries'] += 1
         if kind in ('alert_delivered_popup', 'alert_delivered_email'):
             entry['alerts'] += 1
+    for day, count in installs:
+        daily.setdefault(day, {'devices': set(), 'active': set(), 'monitoring': set(),
+                               'queries': 0, 'alerts': 0, 'installs': 0})['installs'] = count
     all_devices = set().union(*(entry['devices'] for entry in daily.values())) if daily else set()
     all_active = set().union(*(entry['active'] for entry in daily.values())) if daily else set()
     all_monitoring = set().union(*(entry['monitoring'] for entry in daily.values())) if daily else set()
     with (output / 'daily.csv').open('w', newline='', encoding='utf-8-sig') as stream:
         writer = csv.writer(stream)
-        writer.writerow(['日期', '参与统计的设备数', '主动使用设备数', '后台监控设备数', '查询成功次数', '提醒送达次数'])
+        writer.writerow(['日期', '参与统计的设备数', '主动使用设备数', '后台监控设备数', '查询成功次数', '提醒送达次数', '安装完成次数'])
         for day, e in sorted(daily.items()):
-            writer.writerow([day, len(e['devices']), len(e['active']), len(e['monitoring']), e['queries'], e['alerts']])
+            writer.writerow([day, len(e['devices']), len(e['active']), len(e['monitoring']),
+                             e['queries'], e['alerts'], e['installs']])
         writer.writerow(['合计去重', len(all_devices), len(all_active), len(all_monitoring),
-                         sum(e['queries'] for e in daily.values()), sum(e['alerts'] for e in daily.values())])
+                         sum(e['queries'] for e in daily.values()), sum(e['alerts'] for e in daily.values()),
+                         sum(e['installs'] for e in daily.values())])
     features = {}
     for _, device, kind, feature in rows:
         if kind == 'feature_selected' and feature:

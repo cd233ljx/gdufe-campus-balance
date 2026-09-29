@@ -13,8 +13,9 @@ from unittest.mock import patch
 
 from cardsclaim.desktop.store import DesktopStore
 from cardsclaim.desktop.telemetry import Telemetry
+from cardsclaim.desktop.install_counts import InstallationCounter
 from cardsclaim.desktop.model import TZ
-from server.metrics_service import Handler, connect, delete_device, export, insert_events, valid_event
+from server.metrics_service import Handler, connect, delete_device, export, insert_events, insert_installation, valid_event
 
 
 class TelemetryTests(unittest.TestCase):
@@ -58,6 +59,43 @@ class TelemetryTests(unittest.TestCase):
         self.assertIn(('/v1/delete', {'device_id': device}), self.sent)
         self.assertFalse(self.store.read('telemetry')['pending_delete'])
 
+    def test_install_completion_offline_retry_dedup_and_report(self):
+        db_path = self.root / 'install.sqlite3'
+        def offline(path, data):
+            raise OSError('offline')
+        counter = InstallationCounter(self.store, sender=offline)
+        self.assertTrue(counter.record_completion())
+        event = self.store.read('install-counts')['queue'][0]
+        self.assertEqual(set(event), {'event_id', 'day', 'version'})
+        self.assertIsNone(self.store.read('telemetry'))
+        self.assertFalse(counter.flush())
+        self.assertEqual(self.store.read('install-counts')['queue'], [event])
+        def receive(path, data):
+            self.assertEqual(path, '/v1/install')
+            insert_installation(db_path, data)
+        counter.sender = receive
+        self.assertTrue(counter.flush())
+        self.assertEqual(self.store.read('install-counts')['queue'], [])
+        insert_installation(db_path, event)
+        output = self.root / 'install-report'
+        export(db_path, output, event['day'], event['day'])
+        with (output / 'daily.csv').open(encoding='utf-8-sig', newline='') as stream:
+            report = list(csv.reader(stream))
+        self.assertEqual(report[1], [event['day'], '0', '0', '0', '0', '0', '1'])
+        self.assertEqual(report[2], ['合计去重', '0', '0', '0', '0', '0', '1'])
+        with self.assertRaises(ValueError):
+            insert_installation(db_path, dict(event, room='private'))
+
+    def test_installer_command_records_and_flushes(self):
+        from cardsclaim.desktop import app
+        with (patch('sys.argv', ['gdufe-campus-balance.exe', '--install-count']),
+              patch.object(app, 'DesktopStore', return_value=self.store),
+              patch.object(app, 'InstallationCounter') as counter):
+            counter.return_value.record_completion.return_value = True
+            app.main()
+            counter.return_value.record_completion.assert_called_once_with()
+            counter.return_value.flush.assert_called_once_with()
+
     def test_network_failure_preserves_queue_and_field_whitelist(self):
         def fail(path, data):
             raise OSError('offline')
@@ -93,8 +131,8 @@ class TelemetryTests(unittest.TestCase):
         export(db_path, output, today, today)
         with (output / 'daily.csv').open(encoding='utf-8-sig', newline='') as stream:
             report = list(csv.reader(stream))
-        self.assertEqual(report[1], [today, '1', '1', '1', '1', '1'])
-        self.assertEqual(report[2], ['合计去重', '1', '1', '1', '1', '1'])
+        self.assertEqual(report[1], [today, '1', '1', '1', '1', '1', '0'])
+        self.assertEqual(report[2], ['合计去重', '1', '1', '1', '1', '1', '0'])
         with (output / 'features.csv').open(encoding='utf-8-sig', newline='') as stream:
             self.assertEqual(list(csv.reader(stream))[1], ['electricity', '1'])
         delete_device(db_path, device)
@@ -130,12 +168,19 @@ class TelemetryTests(unittest.TestCase):
                                              {'Content-Type': 'application/json'}, method='POST')
             return urllib.request.urlopen(request, timeout=3).status
         self.assertEqual(post('/v1/events', {'events': [event]}), 204)
+        install = dict(event_id='3' * 32, day=event['day'], version='0.5.3')
+        self.assertEqual(post('/v1/install', install), 204)
+        self.assertEqual(post('/v1/install', install), 204)
+        with self.assertRaises(urllib.error.HTTPError) as bad_install:
+            post('/v1/install', dict(install, device_id='private'))
+        self.assertEqual(bad_install.exception.code, 400)
         with self.assertRaises(urllib.error.HTTPError) as error:
             post('/v1/events', {'events': [dict(event, room='secret')]} )
         self.assertEqual(error.exception.code, 400)
         self.assertEqual(post('/v1/delete', {'device_id': event['device_id']}), 204)
         with closing(connect(db_path)) as db:
             self.assertEqual(db.execute('SELECT COUNT(*) FROM events').fetchone()[0], 0)
+            self.assertEqual(db.execute('SELECT COUNT(*) FROM installations').fetchone()[0], 1)
 
 
 if __name__ == '__main__':

@@ -1,6 +1,6 @@
 # 使用统计服务
 
-本服务仅接收选择参与的桌面客户端发来的固定事件，不提供公网页面或报表接口。`/healthz` 是健康检查；`/v1/events` 接收最多 50 条事件并按 `event_id` 去重；`/v1/delete` 删除一个随机设备标识对应的事件，并短期拒绝该标识的滞后重传。
+本服务接收安装器完成事件与选择参与的桌面客户端使用事件，不提供公网页面或报表接口。`/healthz` 是健康检查；`/v1/install` 接收不含设备编号的安装完成事件并按 `event_id` 去重；`/v1/events` 接收最多 50 条使用事件并去重；`/v1/delete` 删除一个随机设备标识对应的使用事件，并短期拒绝该标识的滞后重传。
 
 ## home-server 部署
 
@@ -15,7 +15,7 @@
 python3 /srv/stacks/campus-metrics/metrics_service.py export --start 2026-09-01 --end 2026-09-30 --output /srv/data/campus-metrics/reports/2026-09
 ```
 
-输出为 `/srv/data/campus-metrics/reports/2026-09/daily.csv` 和 `features.csv`。日报最后一行按整个日期范围去重，不能把每日设备数直接相加当作总人数。
+输出为 `/srv/data/campus-metrics/reports/2026-09/daily.csv` 和 `features.csv`。日报包含“安装完成次数”，升级和重装各计一次；最后一行的设备数按整个日期范围去重，不能把每日设备数直接相加当作总人数。
 
 ## 回滚
 

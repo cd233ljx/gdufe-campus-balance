@@ -20,6 +20,7 @@ from .store import DesktopStore
 from .history import record
 from . import email_alerts
 from .telemetry import Telemetry
+from .install_counts import InstallationCounter
 
 ERRORS = {'auth': '登录已失效，请选择浏览器登录 / 续期', 'network': '网络连接失败，下一轮查询会重试',
           'business': '学校接口未接受查询，请重新选择房间', 'parse': '余额格式无法识别，请勿把它当成零'}
@@ -189,6 +190,7 @@ async def monitor(store, background=False, instance=None):
     retry_at = 0
     mail_retry_at = 0
     metrics_retry_at = 0
+    install_retry_at = 0
     try:
         say('监控已启动，每 30 分钟查询。按 B 切换后台，按 Q 返回菜单。')
         while True:
@@ -217,6 +219,9 @@ async def monitor(store, background=False, instance=None):
             if time.monotonic() >= metrics_retry_at:
                 await asyncio.to_thread(Telemetry(store).flush)
                 metrics_retry_at = time.monotonic() + 300
+            if time.monotonic() >= install_retry_at:
+                await asyncio.to_thread(InstallationCounter(store).flush)
+                install_retry_at = time.monotonic() + 300
             await asyncio.sleep(1)
     finally:
         if delivery:
@@ -269,6 +274,7 @@ def main():
     parser.add_argument('--rooms', action='store_true', help='打开软件内房间选择')
     parser.add_argument('--gui-self-test', metavar='REPORT', help=argparse.SUPPRESS)
     parser.add_argument('--apply-update', help=argparse.SUPPRESS)
+    parser.add_argument('--install-count', action='store_true', help=argparse.SUPPRESS)
     parser.add_argument('--notify')
     parser.add_argument('--self-test', action='store_true', help='离线检查加密、后台进程和浏览器驱动，不访问学校')
     args = parser.parse_args()
@@ -289,6 +295,14 @@ def main():
         except Exception:
             raise SystemExit(1)
         return
+    if args.install_count:
+        try:
+            counter = InstallationCounter(DesktopStore())
+            if counter.record_completion():
+                counter.flush()
+        except Exception:
+            pass  # Installation succeeds even if statistics storage/network fails.
+        return
     from .lifecycle import hold_install_mutex
     hold_install_mutex()
     if args.notify:
@@ -298,6 +312,7 @@ def main():
         result = ctypes.windll.user32.MessageBoxW(None, text, 'GDUFE Campus Balance 余额提醒', 0x40 | 0x10000)
         raise SystemExit(0 if result else 1)
     store = DesktopStore()
+    InstallationCounter(store).flush_async()
     if args.background:
         try:
             with store.lock():

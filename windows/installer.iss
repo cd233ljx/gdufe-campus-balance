@@ -75,6 +75,9 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "{#ProductName}"; Tasks: not startup; Flags: deletevalue
 
 [Run]
+#ifndef InstallerTest
+Filename: "{app}\gdufe-campus-balance.exe"; Parameters: "--install-count"; Flags: runhidden
+#endif
 Filename: "{app}\gdufe-campus-balance.exe"; Description: "立即启动广财校园工具箱"; Flags: nowait postinstall skipifsilent
 
 [Code]
